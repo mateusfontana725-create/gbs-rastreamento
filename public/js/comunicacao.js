@@ -46,6 +46,8 @@
     cpf_invalido: 'CPF inválido. Confira os 11 números.',
     telefone_invalido: 'Celular inválido. Informe o DDD e o número.',
     participante_liberado: 'Sua saída desta operação já foi liberada pelo responsável.',
+    nao_pode_alterar_a_si: 'Você não pode desativar nem tirar o próprio acesso de administrador. Peça a outro administrador.',
+    ultimo_admin: 'É preciso manter pelo menos um administrador ativo.',
     responsavel_nao_encontrado: 'Nenhum responsável cadastrado com esse e-mail. Peça ao administrador para autorizá-lo primeiro.',
     'Invalid login credentials': 'E-mail ou senha incorretos.',
     'Email not confirmed': 'E-mail ainda não confirmado no Supabase.',

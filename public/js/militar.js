@@ -97,7 +97,7 @@
   /* ------------------------------------------------------------------ */
   /* Telas e navegação                                                    */
   /* ------------------------------------------------------------------ */
-  var TELAS = ['carregando', 'login', 'sem-permissao', 'operacoes', 'painel'];
+  var TELAS = ['carregando', 'login', 'sem-permissao', 'operacoes', 'responsaveis', 'painel'];
   function mostrarTela(nome) {
     TELAS.forEach(function (t) { $('tela-' + t).hidden = t !== nome; });
     document.body.classList.toggle('no-painel', nome === 'painel');
@@ -110,6 +110,12 @@
 
   function rotear() {
     if (!est.responsavel) return;
+    if (location.hash === '#responsaveis') {
+      fecharPainel();
+      if (est.responsavel.admin) mostrarResponsaveis();
+      else location.hash = '';
+      return;
+    }
     var id = opDoHash();
     if (id) {
       if (!est.op || est.op.id !== id) abrirPainel(id);
@@ -139,6 +145,11 @@
     $('ficha-trilha').addEventListener('click', function () { alternarTrilha(est.selecionado); });
     $('ficha-remover').addEventListener('click', removerParticipante);
     $('btn-minha-pos').addEventListener('click', alternarMinhaPosicao);
+    $('btn-minha-conta').addEventListener('click', abrirMinhaConta);
+    $('form-resp').addEventListener('submit', cadastrarResponsavel);
+    $('resp-gerar').addEventListener('click', function () { $('resp-senha').value = gerarSenha(); });
+    $('resp-cred-fechar').addEventListener('click', function () { $('resp-credenciais').hidden = true; $('resp-cred-texto').textContent = ''; });
+    $('resp-cred-copiar').addEventListener('click', function () { copiarTexto($('resp-cred-texto').textContent); });
     $('btn-equipe').addEventListener('click', abrirEquipe);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' && est.compartilhando) {
@@ -211,18 +222,19 @@
     est.usuario = usuario;
     var resp;
     try {
-      resp = await C.consultar(C.cliente.from('responsaveis').select('nome').eq('user_id', usuario.id).maybeSingle());
+      resp = await C.consultar(C.cliente.from('responsaveis').select('nome,admin,ativo').eq('user_id', usuario.id).maybeSingle());
     } catch (e) {
       mostrarTela('login');
       erroLogin(e.message);
       return;
     }
-    if (!resp) {
+    if (!resp || resp.ativo === false) {
       mostrarTela('sem-permissao');
       return;
     }
     est.responsavel = resp;
-    $('usuario-nome').textContent = resp.nome + ' · ' + (usuario.email || '');
+    $('usuario-nome').textContent = resp.nome + ' · ' + (usuario.email || '') + (resp.admin ? ' · administrador' : '');
+    $('btn-responsaveis').hidden = !resp.admin;
     C.sincronizarRelogio();
     rotear();
   }
@@ -1982,6 +1994,222 @@
       lista.innerHTML = '';
       lista.appendChild(UI.el('li', { classe: 'erro-form', texto: e.message }));
     });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Minha conta: troca da própria senha                                  */
+  /* ------------------------------------------------------------------ */
+  function abrirMinhaConta() {
+    var s1 = UI.el('input', { classe: 'campo', type: 'password', id: 'conta-senha1', autocomplete: 'new-password', maxlength: '72' });
+    var s2 = UI.el('input', { classe: 'campo', type: 'password', id: 'conta-senha2', autocomplete: 'new-password', maxlength: '72' });
+    var erro = UI.el('p', { classe: 'erro-form', role: 'alert', hidden: true });
+    var btn = UI.el('button', { classe: 'btn btn-escuro', type: 'submit', texto: 'Salvar nova senha' });
+    var form = UI.el('form', { novalidate: true }, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'Minha conta' }),
+      UI.el('p', { classe: 'ajuda', texto: (est.responsavel ? est.responsavel.nome + ' · ' : '') + (est.usuario && est.usuario.email || '') }),
+      UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'conta-senha1', texto: 'Nova senha (mínimo 8 caracteres)' }), s1]),
+      UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'conta-senha2', texto: 'Repita a nova senha' }), s2]),
+      erro,
+      UI.el('div', { classe: 'modal-acoes' }, [UI.el('button', { classe: 'btn', type: 'button', texto: 'Cancelar', onclick: function () { fechar(); } }), btn]),
+    ]);
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      erro.hidden = true;
+      if (s1.value.length < 8) { erro.textContent = 'A senha precisa ter pelo menos 8 caracteres.'; erro.hidden = false; return; }
+      if (s1.value !== s2.value) { erro.textContent = 'As duas senhas não são iguais.'; erro.hidden = false; return; }
+      btn.disabled = true;
+      try {
+        var r = await C.cliente.auth.updateUser({ password: s1.value });
+        if (r.error) throw C.criarErro(r.error);
+        fechar();
+        UI.aviso('Senha alterada.', 'ok');
+      } catch (e) {
+        erro.textContent = /weak|password/i.test(String(e.original && e.original.message)) ? 'Senha fraca. Use pelo menos 8 caracteres, misturando letras e números.' : e.message;
+        erro.hidden = false;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    var fechar = UI.abrirModal(form);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Responsáveis (somente administradores)                               */
+  /* ------------------------------------------------------------------ */
+  var ERROS_API = {
+    nome_invalido: 'Informe o nome (2 a 60 caracteres).',
+    email_invalido: 'E-mail inválido.',
+    senha_fraca: 'Senha fraca: use pelo menos 8 caracteres.',
+    ja_cadastrado: 'Este e-mail já está cadastrado como responsável.',
+    sem_permissao: 'Somente administradores podem fazer isso.',
+    nao_autenticado: 'Sessão expirada. Entre novamente.',
+    responsavel_nao_encontrado: 'Responsável não encontrado.',
+    variaveis_de_ambiente_ausentes: 'Servidor sem a chave secreta do Supabase (variável SUPABASE_SECRET_KEY no Vercel).',
+    falha_supabase: 'O Supabase recusou a operação. Tente de novo em instantes.',
+    falha_rede: 'Falha de comunicação com o Supabase.',
+  };
+
+  function gerarSenha() {
+    var alfabeto = 'abcdefghjkmnpqrstuvwxyz23456789';
+    var b = new Uint8Array(12);
+    crypto.getRandomValues(b);
+    var s = '';
+    for (var i = 0; i < 12; i++) {
+      s += alfabeto[b[i] % alfabeto.length];
+      if (i === 3 || i === 7) s += '-';
+    }
+    return s;
+  }
+
+  async function copiarTexto(t) {
+    try { await navigator.clipboard.writeText(t); UI.aviso('Copiado.', 'ok'); }
+    catch (e) { UI.aviso('Selecione e copie manualmente.', 'erro'); }
+  }
+
+  async function chamarApiResponsaveis(corpo) {
+    var sessao = (await C.cliente.auth.getSession()).data.session;
+    if (!sessao) throw new Error(ERROS_API.nao_autenticado);
+    var r;
+    try {
+      r = await fetch('/api/responsaveis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + sessao.access_token },
+        body: JSON.stringify(corpo),
+      });
+    } catch (e) {
+      throw new Error('Sem conexão com o servidor.');
+    }
+    var j = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(ERROS_API[j.erro] || ('Erro ' + r.status + (j.erro ? ': ' + j.erro : '')));
+    return j;
+  }
+
+  async function mostrarResponsaveis() {
+    mostrarTela('responsaveis');
+    document.title = 'Responsáveis — Painel GBS';
+    if (!$('resp-senha').value) $('resp-senha').value = gerarSenha();
+    await carregarResponsaveis();
+  }
+
+  async function carregarResponsaveis() {
+    var ul = $('lista-resp');
+    ul.innerHTML = '<li class="muted">Carregando…</li>';
+    try {
+      renderizarResponsaveis(await C.rpc('admin_listar_responsaveis'));
+    } catch (e) {
+      ul.innerHTML = '';
+      ul.appendChild(UI.el('li', { classe: 'erro-form', texto: e.message }));
+    }
+  }
+
+  function renderizarResponsaveis(lista) {
+    var ul = $('lista-resp');
+    ul.innerHTML = '';
+    (lista || []).forEach(function (r) {
+      var acoes = UI.el('div', { classe: 'op-acoes' });
+      if (!r.eu) {
+        acoes.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Redefinir senha', onclick: function () { redefinirSenha(r); } }));
+        acoes.appendChild(UI.el('button', {
+          classe: 'btn btn-pequeno', type: 'button', texto: r.admin ? 'Tirar administrador' : 'Tornar administrador',
+          onclick: function () { alterarResponsavel(r, { p_admin: !r.admin }, r.admin ? 'deixará de ser administrador' : 'passará a ser administrador'); },
+        }));
+        acoes.appendChild(UI.el('button', {
+          classe: 'btn btn-pequeno ' + (r.ativo ? 'btn-perigo' : 'btn-ok'), type: 'button', texto: r.ativo ? 'Desativar acesso' : 'Reativar acesso',
+          onclick: function () { alterarResponsavel(r, { p_ativo: !r.ativo }, r.ativo ? 'perderá o acesso ao painel na hora' : 'voltará a acessar o painel'); },
+        }));
+      }
+      acoes.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Renomear', onclick: function () { renomearResponsavel(r); } }));
+      ul.appendChild(UI.el('li', { classe: r.ativo ? '' : 'inativo' }, [
+        UI.el('div', { classe: 'op-info' }, [
+          UI.el('strong', null, [
+            r.nome + ' ',
+            r.admin ? UI.el('span', { classe: 'selo selo-responsavel', texto: 'Administrador' }) : null,
+            r.ativo ? null : UI.el('span', { classe: 'selo selo-perigo', texto: 'Desativado' }),
+            r.eu ? UI.el('span', { classe: 'selo selo-neutro', texto: 'Você' }) : null,
+          ]),
+          UI.el('span', { texto: (r.email || '') + ' · último acesso: ' + (r.ultimo_acesso ? C.hora(r.ultimo_acesso, false) : 'nunca entrou') }),
+        ]),
+        acoes,
+      ]));
+    });
+  }
+
+  async function cadastrarResponsavel(ev) {
+    ev.preventDefault();
+    var erro = $('resp-erro');
+    erro.hidden = true;
+    var nome = $('resp-nome').value.replace(/\s+/g, ' ').trim();
+    var email = $('resp-email').value.trim().toLowerCase();
+    var senha = $('resp-senha').value;
+    var admin = $('resp-admin').checked;
+    var msg = nome.length < 2 ? ERROS_API.nome_invalido
+      : !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) ? ERROS_API.email_invalido
+      : senha.length < 8 ? ERROS_API.senha_fraca : '';
+    if (msg) { erro.textContent = msg; erro.hidden = false; return; }
+    var btn = $('resp-cadastrar');
+    btn.disabled = true;
+    try {
+      var r = await chamarApiResponsaveis({ acao: 'criar', nome: nome, email: email, senha: senha, admin: admin });
+      var painel = new URL('militar.html', location.href);
+      painel.hash = '';
+      $('resp-cred-texto').textContent = r.ja_existia
+        ? 'Painel: ' + painel.href + '\nE-mail: ' + email + '\nSenha: a mesma que essa pessoa já usava (o login já existia).'
+        : 'Painel: ' + painel.href + '\nE-mail: ' + email + '\nSenha provisória: ' + senha + '\n\nTroque a senha em "Minha conta" no primeiro acesso.';
+      $('resp-credenciais').hidden = false;
+      $('resp-nome').value = '';
+      $('resp-email').value = '';
+      $('resp-admin').checked = false;
+      $('resp-senha').value = gerarSenha();
+      UI.aviso(nome + ' cadastrado.', 'ok');
+      carregarResponsaveis();
+    } catch (e) {
+      erro.textContent = e.message;
+      erro.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function alterarResponsavel(r, campos, efeito) {
+    var ok = await UI.confirmar({ titulo: r.nome, texto: r.nome + ' ' + efeito + '. Confirma?', ok: 'Confirmar', perigo: campos.p_ativo === false });
+    if (!ok) return;
+    try {
+      renderizarResponsaveis(await C.rpc('admin_alterar_responsavel', Object.assign({ p_user: r.user_id }, campos)));
+      UI.aviso('Alteração salva.', 'ok');
+    } catch (e) {
+      UI.aviso(e.message, 'erro', 7000);
+    }
+  }
+
+  async function renomearResponsavel(r) {
+    var res = await UI.confirmar({ titulo: 'Renomear', campo: { rotulo: 'Nome / posto e graduação', valor: r.nome, max: 60, obrigatorio: true }, ok: 'Salvar' });
+    if (!res) return;
+    try {
+      renderizarResponsaveis(await C.rpc('admin_alterar_responsavel', { p_user: r.user_id, p_nome: res.texto }));
+      UI.aviso('Nome atualizado.', 'ok');
+    } catch (e) {
+      UI.aviso(e.message, 'erro');
+    }
+  }
+
+  async function redefinirSenha(r) {
+    var res = await UI.confirmar({
+      titulo: 'Redefinir senha de ' + r.nome,
+      texto: 'A senha atual deixa de funcionar. Passe a nova senha para ' + r.nome + ' por um canal seguro.',
+      campo: { rotulo: 'Nova senha provisória', valor: gerarSenha(), max: 72, obrigatorio: true },
+      ok: 'Redefinir senha',
+    });
+    if (!res) return;
+    if (res.texto.length < 8) { UI.aviso(ERROS_API.senha_fraca, 'erro'); return; }
+    try {
+      await chamarApiResponsaveis({ acao: 'senha', user_id: r.user_id, senha: res.texto });
+      $('resp-cred-texto').textContent = 'E-mail: ' + (r.email || '') + '\nNova senha provisória: ' + res.texto;
+      $('resp-credenciais').hidden = false;
+      window.scrollTo(0, 0);
+      UI.aviso('Senha redefinida.', 'ok');
+    } catch (e) {
+      UI.aviso(e.message, 'erro', 7000);
+    }
   }
 
   iniciar();

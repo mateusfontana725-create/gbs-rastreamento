@@ -31,6 +31,33 @@ create table if not exists public.responsaveis (
   nome       text not null check (char_length(nome) between 2 and 60),
   criado_em  timestamptz not null default now()
 );
+-- admin: pode cadastrar e gerenciar responsáveis pelo painel.
+-- ativo: false = acesso ao painel suspenso (o cadastro e o histórico continuam).
+alter table public.responsaveis add column if not exists admin boolean not null default false;
+alter table public.responsaveis add column if not exists ativo boolean not null default true;
+
+-- Se ainda não houver administrador, o primeiro responsável cadastrado vira administrador
+-- (vale para bancos que já existiam e para a primeira instalação, pelo gatilho abaixo).
+create or replace function public.primeiro_responsavel_admin()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  if not exists (select 1 from public.responsaveis where admin and ativo) then
+    new.admin := true;
+    new.ativo := true;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists responsaveis_primeiro_admin on public.responsaveis;
+create trigger responsaveis_primeiro_admin before insert on public.responsaveis
+  for each row execute function public.primeiro_responsavel_admin();
+revoke execute on function public.primeiro_responsavel_admin() from public;
+
+update public.responsaveis set admin = true
+ where user_id = (select user_id from public.responsaveis where ativo order by criado_em, user_id limit 1)
+   and not exists (select 1 from public.responsaveis where admin and ativo);
 
 create table if not exists public.operacoes (
   id                 uuid primary key default gen_random_uuid(),
@@ -132,7 +159,14 @@ create or replace function public.eh_responsavel()
 returns boolean
 language sql stable security definer set search_path = public
 as $$
-  select exists (select 1 from public.responsaveis where user_id = auth.uid());
+  select exists (select 1 from public.responsaveis where user_id = auth.uid() and ativo);
+$$;
+
+create or replace function public.eh_admin()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.responsaveis where user_id = auth.uid() and ativo and admin);
 $$;
 
 create or replace function public.dono_operacao(p_operacao uuid)
@@ -376,6 +410,102 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
+-- 4a. ADMINISTRAÇÃO DOS RESPONSÁVEIS (tela "Responsáveis" do painel)
+--     A criação do login (e-mail e senha) é feita pela função de servidor
+--     /api/responsaveis, que usa a chave secreta; o resto é feito aqui.
+-- ---------------------------------------------------------------------
+
+create or replace function public.admin_listar_responsaveis()
+returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v json;
+begin
+  if not public.eh_admin() then
+    raise exception 'sem_permissao';
+  end if;
+  select coalesce(json_agg(x order by x.ativo desc, x.nome), '[]'::json) into v
+    from (
+      select r.user_id, r.nome, u.email, r.admin, r.ativo, r.criado_em,
+             u.last_sign_in_at as ultimo_acesso,
+             r.user_id = auth.uid() as eu
+        from public.responsaveis r
+        join auth.users u on u.id = r.user_id
+    ) x;
+  return v;
+end;
+$$;
+
+-- Altera nome, administrador e ativo. Protege contra ficar sem administrador.
+create or replace function public.admin_alterar_responsavel(p_user uuid, p_nome text default null,
+                                                            p_admin boolean default null, p_ativo boolean default null)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_nome text := nullif(btrim(regexp_replace(coalesce(p_nome, ''), '\s+', ' ', 'g')), '');
+begin
+  if not public.eh_admin() then
+    raise exception 'sem_permissao';
+  end if;
+  if not exists (select 1 from public.responsaveis where user_id = p_user) then
+    raise exception 'responsavel_nao_encontrado';
+  end if;
+  if p_user = auth.uid() and (p_admin = false or p_ativo = false) then
+    raise exception 'nao_pode_alterar_a_si';
+  end if;
+  if v_nome is not null and (char_length(v_nome) < 2 or char_length(v_nome) > 60) then
+    raise exception 'nome_invalido';
+  end if;
+  update public.responsaveis
+     set nome = coalesce(v_nome, nome),
+         admin = coalesce(p_admin, admin),
+         ativo = coalesce(p_ativo, ativo)
+   where user_id = p_user;
+  if not exists (select 1 from public.responsaveis where admin and ativo) then
+    raise exception 'ultimo_admin';
+  end if;
+  return public.admin_listar_responsaveis();
+end;
+$$;
+
+-- Usadas SOMENTE pela função de servidor (chave secreta), nunca pelo navegador.
+create or replace function public.servidor_usuario_por_email(p_email text)
+returns json
+language sql stable security definer set search_path = public
+as $$
+  select json_build_object('user_id', u.id, 'responsavel', r.user_id is not null)
+    from auth.users u
+    left join public.responsaveis r on r.user_id = u.id
+   where lower(u.email) = lower(btrim(coalesce(p_email, '')))
+   limit 1;
+$$;
+
+create or replace function public.servidor_salvar_responsavel(p_user uuid, p_nome text, p_admin boolean default false)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_nome text := btrim(regexp_replace(coalesce(p_nome, ''), '\s+', ' ', 'g'));
+begin
+  if char_length(v_nome) < 2 or char_length(v_nome) > 60 then
+    raise exception 'nome_invalido';
+  end if;
+  insert into public.responsaveis (user_id, nome, admin, ativo)
+  values (p_user, v_nome, coalesce(p_admin, false), true)
+  on conflict (user_id) do update set nome = excluded.nome, admin = excluded.admin, ativo = true;
+end;
+$$;
+
+create or replace function public.servidor_eh_responsavel(p_user uuid)
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (select 1 from public.responsaveis where user_id = p_user);
+$$;
+
+-- ---------------------------------------------------------------------
 -- 4b. EQUIPE DE RESPONSÁVEIS E PRESENÇA DO COMANDO NO MAPA
 -- ---------------------------------------------------------------------
 
@@ -422,7 +552,7 @@ begin
   end if;
   select u.id into v_uid
     from auth.users u
-    join public.responsaveis r on r.user_id = u.id
+    join public.responsaveis r on r.user_id = u.id and r.ativo
    where lower(u.email) = lower(btrim(coalesce(p_email, '')))
    limit 1;
   if v_uid is null then
@@ -960,6 +1090,9 @@ $$;
 -- 7. PERMISSÕES DE EXECUÇÃO
 -- ---------------------------------------------------------------------
 revoke execute on function
+  public.eh_admin(), public.admin_listar_responsaveis(), public.admin_alterar_responsavel(uuid, text, boolean, boolean),
+  public.servidor_usuario_por_email(text), public.servidor_salvar_responsavel(uuid, text, boolean),
+  public.servidor_eh_responsavel(uuid),
   public.eh_responsavel(), public.dono_operacao(uuid), public.eh_meu_participante(uuid), public.gerar_token(),
   public.criar_operacao(text, integer), public.encerrar_operacao(uuid), public.apagar_dados_operacao(uuid),
   public.remover_participante(uuid), public.enviar_mensagem(uuid, text, text), public.info_operacao(text),
@@ -971,6 +1104,7 @@ revoke execute on function
 from public, anon;
 
 grant execute on function
+  public.eh_admin(), public.admin_listar_responsaveis(), public.admin_alterar_responsavel(uuid, text, boolean, boolean),
   public.eh_responsavel(), public.dono_operacao(uuid), public.eh_meu_participante(uuid),
   public.criar_operacao(text, integer), public.encerrar_operacao(uuid), public.apagar_dados_operacao(uuid),
   public.remover_participante(uuid), public.enviar_mensagem(uuid, text, text), public.info_operacao(text),
@@ -987,6 +1121,12 @@ grant execute on function public.info_operacao(text) to anon;
 -- Só o servidor (chave secreta, função /api/limpeza) executa a limpeza.
 revoke execute on function public.purgar_expiradas() from authenticated;
 grant execute on function public.purgar_expiradas() to service_role;
+
+-- Funções do servidor (cadastro de login pelo painel): só a chave secreta executa.
+revoke execute on function public.servidor_usuario_por_email(text), public.servidor_salvar_responsavel(uuid, text, boolean),
+  public.servidor_eh_responsavel(uuid) from authenticated;
+grant execute on function public.servidor_usuario_por_email(text), public.servidor_salvar_responsavel(uuid, text, boolean),
+  public.servidor_eh_responsavel(uuid) to service_role;
 
 -- ---------------------------------------------------------------------
 -- 8. TEMPO REAL (Supabase Realtime — postgres_changes respeita o RLS)
@@ -1008,8 +1148,10 @@ end;
 $$;
 
 -- =====================================================================
--- DEPOIS DE EXECUTAR ESTE ARQUIVO:
---   1. Crie o usuário do militar em Authentication > Users > Add user.
+-- DEPOIS DE EXECUTAR ESTE ARQUIVO (somente na PRIMEIRA instalação):
+--   O primeiro responsável é criado pelo Supabase; ele vira ADMINISTRADOR e
+--   cadastra os demais pela tela "Responsáveis" do painel.
+--   1. Crie o usuário em Authentication > Users > Add user (marque Auto Confirm).
 --   2. Autorize-o (troque o e-mail e o nome):
 --
 --      insert into public.responsaveis (user_id, nome)

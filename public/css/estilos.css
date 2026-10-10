@@ -718,3 +718,27 @@ a.tel { color: var(--civil-texto); font-weight: 800; text-decoration: none; bord
 }
 .saida-pendente strong { display: block; margin-bottom: 4px; }
 .ajuda.centro { text-align: center; }
+
+/* =====================================================================
+ * ADMINISTRAÇÃO DE RESPONSÁVEIS / MINHA CONTA
+ * ===================================================================== */
+.barra-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.barra-topo > a.btn:first-child { text-decoration: none; }
+.grade-resp { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.grade-resp .grupo:nth-child(3), .grade-resp .linha-opcao { grid-column: 1 / -1; }
+@media (max-width: 720px) { .grade-resp { grid-template-columns: 1fr; } }
+.lista-resp { list-style: none; margin: 0; padding: 0; }
+.lista-resp li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 0; border-top: 1px solid var(--borda); }
+.lista-resp li:first-child { border-top: 0; }
+.lista-resp li.inativo .op-info { opacity: .6; }
+.lista-resp .op-info strong { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.credenciais { border-left: 5px solid var(--ok); }
+.credenciais pre {
+  white-space: pre-wrap; word-break: break-all; background: #070a0c; border: 1px solid var(--borda);
+  border-radius: var(--raio); padding: 12px; margin: 0 0 12px; font-size: .95rem; color: #fff;
+}
+@media (max-width: 599px) {
+  .barra-acoes { width: 100%; }
+  .barra-acoes .btn { flex: 1 1 0; }
+  .lista-resp .op-acoes .btn { flex: 1 1 45%; }
+}

@@ -57,7 +57,11 @@
         <div><h1>Operações de busca</h1><small id="usuario-nome"></small></div>
       </div>
       <div class="barra-espaco"></div>
-      <button class="btn btn-barra btn-pequeno" type="button" data-acao="sair">Sair</button>
+      <div class="barra-acoes">
+        <a class="btn btn-barra btn-pequeno" href="#responsaveis" id="btn-responsaveis" hidden>Responsáveis</a>
+        <button class="btn btn-barra btn-pequeno" type="button" id="btn-minha-conta">Minha conta</button>
+        <button class="btn btn-barra btn-pequeno" type="button" data-acao="sair">Sair</button>
+      </div>
     </header>
     <div class="conteudo">
       <form class="cartao secao" id="form-nova" novalidate>
@@ -86,6 +90,60 @@
         <h2>Minhas operações</h2>
         <ul class="lista-ops" id="lista-ops"></ul>
         <p class="muted" id="ops-vazio" hidden>Nenhuma operação criada ainda.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Administração dos responsáveis (somente administradores) -->
+  <section id="tela-responsaveis" hidden>
+    <header class="barra-topo">
+      <a class="btn btn-barra btn-pequeno" href="#" title="Voltar para as operações" aria-label="Voltar para as operações">◀</a>
+      <div class="marca">
+        <div class="marca-icone" aria-hidden="true">GBS</div>
+        <div><h1>Responsáveis</h1><small>Quem pode acessar o painel</small></div>
+      </div>
+      <div class="barra-espaco"></div>
+      <button class="btn btn-barra btn-pequeno" type="button" data-acao="sair">Sair</button>
+    </header>
+    <div class="conteudo">
+      <form class="cartao secao" id="form-resp" novalidate>
+        <h2>Cadastrar responsável</h2>
+        <div class="grade-resp">
+          <div class="grupo">
+            <label class="rotulo" for="resp-nome">Nome / posto e graduação</label>
+            <input class="campo" id="resp-nome" maxlength="60" autocomplete="off" placeholder="Ex.: Sgt BM Fulano de Tal">
+          </div>
+          <div class="grupo">
+            <label class="rotulo" for="resp-email">E-mail (será o login)</label>
+            <input class="campo" id="resp-email" type="email" maxlength="200" autocomplete="off" placeholder="fulano@cbm…">
+          </div>
+          <div class="grupo">
+            <label class="rotulo" for="resp-senha">Senha provisória</label>
+            <div class="link-caixa">
+              <input class="campo mono" id="resp-senha" type="text" maxlength="72" autocomplete="new-password" spellcheck="false">
+              <button class="btn" type="button" id="resp-gerar">Gerar</button>
+            </div>
+          </div>
+          <label class="linha-opcao"><input type="checkbox" id="resp-admin"> Também é administrador (pode cadastrar outros responsáveis)</label>
+        </div>
+        <button class="btn btn-primario" type="submit" id="resp-cadastrar">CADASTRAR</button>
+        <p class="erro-form" id="resp-erro" role="alert" hidden></p>
+        <p class="ajuda">O login é criado na hora, sem e-mail de confirmação. Passe o endereço do painel, o e-mail e a senha provisória ao colega; ele pode trocar a senha em "Minha conta".</p>
+      </form>
+
+      <div class="cartao secao credenciais" id="resp-credenciais" hidden>
+        <h2>Acesso criado</h2>
+        <pre class="mono" id="resp-cred-texto"></pre>
+        <div class="acoes-linha">
+          <button class="btn btn-escuro" type="button" id="resp-cred-copiar">Copiar dados de acesso</button>
+          <button class="btn" type="button" id="resp-cred-fechar">Fechar</button>
+        </div>
+        <p class="nota">Por segurança, esta senha não será mostrada de novo. Se for perdida, use "Redefinir senha".</p>
+      </div>
+
+      <div class="cartao secao">
+        <h2>Responsáveis cadastrados</h2>
+        <ul class="lista-resp" id="lista-resp"></ul>
       </div>
     </div>
   </section>

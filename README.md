@@ -97,7 +97,8 @@ rastreamento-sar/
 │       └── civil.js            lógica do participante (GPS, fila offline, mensagens)
 ├── api/
 │   ├── config.js               entrega ao navegador só a URL e a chave PÚBLICA (de variáveis de ambiente)
-│   └── limpeza.js              limpeza diária dos dados vencidos (usa a chave SECRETA, só no servidor)
+│   ├── limpeza.js              limpeza diária dos dados vencidos (usa a chave SECRETA, só no servidor)
+│   └── responsaveis.js         cria login e redefine senha de responsáveis (só administradores; chave SECRETA)
 ├── supabase/schema.sql         tabelas, regras de segurança (RLS), funções e tempo real
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
@@ -120,17 +121,19 @@ rastreamento-sar/
 4. **Aumente o limite de ingressos anônimos**: em **Authentication → Rate Limits**, o padrão é
    **30 por hora por endereço IP**. Numa base de operações, muitos voluntários usam a mesma rede
    (Wi-Fi ou operadora com IP compartilhado), então aumente para, por exemplo, 300.
-5. Crie o usuário de cada militar responsável: **Authentication → Users → Add user → Create new user**,
-   informe e-mail e senha forte e marque **Auto Confirm User**.
-6. **Autorize** esse usuário a usar o painel (sem isto o login mostra "Acesso não autorizado").
-   No **SQL Editor**, troque o e-mail e o nome e execute:
+5. **Só na primeira instalação** — crie o **primeiro** responsável (ele será o administrador):
+   **Authentication → Users → Add user → Create new user**, informe e-mail e senha forte e marque
+   **Auto Confirm User**.
+6. **Autorize** esse primeiro usuário. No **SQL Editor**, troque o e-mail e o nome e execute:
 
    ```sql
    insert into public.responsaveis (user_id, nome)
    select id, 'Sgt BM Fulano de Tal' from auth.users where email = 'fulano@cbm.exemplo.gov.br';
    ```
 
-   Para revogar o acesso: `delete from public.responsaveis where user_id = (select id from auth.users where email = '...');`
+   O primeiro responsável cadastrado vira **administrador** automaticamente. **Todos os outros
+   responsáveis são cadastrados pelo próprio painel** (tela **Responsáveis**, seção 6), sem
+   voltar ao Supabase. Se o banco já existia, o responsável mais antigo vira administrador.
 7. Copie as chaves em **Project Settings → API Keys** (ou **Data API**):
    - **Project URL** (ex.: `https://abcd1234.supabase.co`);
    - **Publishable key** (`sb_publishable_…`) — ou, em projetos antigos, a **anon key**;
@@ -139,7 +142,7 @@ rastreamento-sar/
    `posicoes` e `mensagens` devem aparecer marcadas. O `schema.sql` já faz isso.
 
 > O cadastro aberto de usuários por e-mail pode ficar como está: o acesso ao painel depende
-> **exclusivamente** da tabela `responsaveis`, que só o administrador altera pelo SQL Editor.
+> **exclusivamente** da tabela `responsaveis`, que só um administrador altera (pelo painel).
 
 ---
 
@@ -156,7 +159,7 @@ rastreamento-sar/
    |---|---|
    | `SUPABASE_URL` | Project URL |
    | `SUPABASE_PUBLISHABLE_KEY` | chave publishable (ou anon) |
-   | `SUPABASE_SECRET_KEY` | chave secret (ou service_role) |
+   | `SUPABASE_SECRET_KEY` | chave secret (ou service_role) — usada na limpeza diária e no cadastro de responsáveis |
    | `CRON_SECRET` | um texto aleatório longo — gere com `openssl rand -hex 32` |
 
 4. Clique em **Deploy**.
@@ -198,6 +201,17 @@ encerrada, e o token fica após o `#` (não é enviado aos servidores nem aparec
 
 ## 6. Uso em campo
 
+**Cadastro de responsáveis (administrador)**: na tela de operações, botão **Responsáveis**.
+- **Cadastrar**: nome/posto, e-mail (será o login) e senha provisória (o botão **Gerar** cria uma
+  senha aleatória). O login é criado na hora, sem e-mail de confirmação. O painel mostra os dados de
+  acesso para copiar e repassar ao colega. Marque **Também é administrador** se ele puder cadastrar outros.
+- **Redefinir senha** (quem esqueceu), **Desativar/Reativar acesso** (corta ou devolve o acesso na
+  hora; o histórico das operações é mantido), **Tornar/Tirar administrador** e **Renomear**.
+- Um administrador não consegue desativar nem tirar o próprio acesso de administrador (evita
+  ficar sem nenhum administrador).
+- **Minha conta** (todos os responsáveis): trocar a própria senha.
+
+
 **Responsável**: login → **Nova operação** (nome/código e política de retenção) → **Convidar** →
 acompanhar o mapa. Na lista: **◎** centraliza o participante, **Trilha** mostra/oculta a trilha dele.
 **Mostrar trilhas / Ocultar trilhas** atuam em todos. Toque no nome ou no marcador para abrir a
@@ -235,6 +249,7 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 |---|---|
 | Consentimento explícito | o GPS só é solicitado depois do toque em INICIAR, com aviso claro sobre localização, CPF e celular; o encerramento é pedido ao responsável, que libera a saída |
 | Dados pessoais (LGPD) | CPF e celular são vistos **só pelos responsáveis da operação**, validados no servidor, guardados só com dígitos, exibidos mascarados por padrão e **apagados junto com a operação** pela política de retenção. Recomenda-se registrar a finalidade (identificação e contato em operação de busca) no controle de tratamento de dados da corporação |
+| Cadastro de responsáveis | só administradores ativos; a criação do login e a troca de senha passam pela função de servidor `/api/responsaveis`, que confere o administrador com o login dele e só então usa a chave secreta (que nunca vai ao navegador). Desativar um responsável corta o acesso a todas as operações na hora |
 | Vários responsáveis | o acesso a cada operação vale para o criador e para quem ele (ou a equipe) adicionar; todos precisam continuar cadastrados em `responsaveis`. Remover alguém da equipe corta o acesso na hora |
 | Acesso restrito ao painel | login por e-mail/senha **e** cadastro na tabela `responsaveis`; o link público não concede acesso |
 | Ingresso seguro | tokens aleatórios de 64 caracteres hexadecimais (244 bits), separados para civis e militares |
@@ -319,11 +334,13 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (124 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+- **Backend (153 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
   supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda).
   Foram verificadas as regras de RLS e de permissão (intruso, outro responsável, participante de
   outra operação, acesso sem login), a validação e a deduplicação de posições, o tipo civil/militar
-  decidido pelo servidor, o ciclo de mensagens, a equipe de responsáveis (adicionar, remover,
+  decidido pelo servidor, o ciclo de mensagens, o cadastro de responsáveis pelo painel (só
+  administradores, senha provisória, redefinir senha, desativar/reativar, proteção contra ficar sem
+  administrador), a equipe de responsáveis (adicionar, remover,
   isolamento), a posição e as mensagens entre responsáveis, a validação de CPF e celular, o pedido
   de encerramento (recusar e liberar), o encerramento com e sem retenção e a limpeza diária.
 - **Ponta a ponta (71 verificações)**: no Chromium, com o painel no computador, no tablet e no
@@ -331,6 +348,9 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   responsáveis na mesma operação. Cobre todos os itens da tabela acima, a queda de internet com
   recuperação sem duplicar pontos e a política CSP real do `vercel.json` (sem nenhum erro de
   JavaScript ou de segurança).
+- **Administração no navegador (20 verificações)**: cadastro pelo painel, primeiro acesso com a senha
+  provisória, troca de senha em "Minha conta", redefinição, desativação (a pessoa perde o acesso na
+  hora) e reativação, no computador e no celular.
 - **Não testado ainda**: o Supabase Realtime real (no teste local ele estava indisponível de
   propósito, o que validou o modo de contingência) e o **comportamento em celulares físicos**, como
   GPS real, tela bloqueada e economia de bateria. Faça o roteiro acima antes do uso operacional.
