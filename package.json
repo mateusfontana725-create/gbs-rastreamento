@@ -1,0 +1,9 @@
+{
+  "name": "rastreamento-sar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Rastreamento GPS de participantes em operações de busca e salvamento (Corpo de Bombeiros Militar).",
+  "engines": {
+    "node": ">=18"
+  }
+}
