@@ -7,6 +7,7 @@
   <meta name="robots" content="noindex, nofollow">
   <title>Rastreamento GBS — Painel do Responsável</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous">
   <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body>
@@ -158,10 +159,52 @@
       </div>
       <span class="pilula-conexao" id="pilula" role="status"><span class="ponto ponto-aguardando"></span><span>Conectando…</span></span>
       <div class="painel-acoes">
-        <button class="btn btn-barra btn-pequeno btn-minha-pos" type="button" id="btn-minha-pos" aria-pressed="false" title="Compartilhar sua posição com os outros responsáveis desta operação"><span class="ico-pos" aria-hidden="true"></span><span class="rotulo-longo">Minha&nbsp;</span>posição</button>
-        <button class="btn btn-barra btn-pequeno" type="button" id="btn-equipe" title="Responsáveis desta operação">Equipe</button>
-        <button class="btn btn-barra btn-pequeno" type="button" id="btn-convite">Convidar<span class="rotulo-longo">&nbsp;participantes</span></button>
-        <button class="btn btn-primario btn-pequeno" type="button" id="btn-encerrar">Encerrar<span class="rotulo-longo">&nbsp;operação</span></button>
+        <button class="btn btn-barra btn-pequeno btn-msgs" type="button" id="btn-mensagens" aria-label="Mensagens, relatos e fotos" aria-controls="central" aria-expanded="false" title="Mensagens, relatos e fotos dos participantes">
+          <span class="ico-msg" aria-hidden="true"></span><span class="rotulo-longo">Mensagens</span>
+          <span class="contador" id="contador-msgs" hidden>0</span>
+        </button>
+        <div class="ferramentas" id="ferramentas">
+          <button class="btn btn-barra btn-pequeno btn-ferramentas" type="button" id="btn-ferramentas" aria-label="Ferramentas" aria-haspopup="true" aria-expanded="false" aria-controls="menu-ferramentas" title="Ferramentas da operação e do mapa">
+            <span class="ico-menu" aria-hidden="true"></span><span class="rotulo-longo">Ferramentas</span>
+            <span class="indicador-pos" aria-hidden="true"></span>
+          </button>
+          <div class="menu-ferramentas" id="menu-ferramentas" role="region" aria-label="Ferramentas" hidden>
+            <div class="menu-cabeca">
+              <strong>Ferramentas</strong>
+              <button class="btn btn-pequeno" type="button" id="menu-fechar" aria-label="Fechar o menu de ferramentas">Fechar</button>
+            </div>
+            <section class="menu-grupo" aria-labelledby="mg-op">
+              <h3 id="mg-op">Operação</h3>
+              <button class="menu-item btn-minha-pos" type="button" id="btn-minha-pos" aria-pressed="false" title="Compartilhar sua posição com os outros responsáveis desta operação">
+                <span class="ico-pos" aria-hidden="true"></span><span>Minha posição</span><small class="menu-estado" id="minha-pos-estado">desligada</small>
+              </button>
+              <button class="menu-item" type="button" id="btn-registrar-foto"><span class="ico-camera" aria-hidden="true"></span><span>Registrar foto</span></button>
+              <button class="menu-item" type="button" id="btn-convite"><span class="ico-item" aria-hidden="true">＋</span><span>Convidar participantes</span></button>
+              <button class="menu-item" type="button" id="btn-equipe" title="Responsáveis desta operação"><span class="ico-item" aria-hidden="true">◆</span><span>Equipe de responsáveis</span></button>
+              <button class="menu-item" type="button" id="menu-central"><span class="ico-msg" aria-hidden="true"></span><span>Mensagens, relatos e fotos</span></button>
+              <button class="menu-item menu-perigo" type="button" id="btn-encerrar"><span class="ico-item" aria-hidden="true">■</span><span>Encerrar operação</span></button>
+              <button class="menu-item menu-perigo" type="button" id="btn-excluir-op" hidden><span class="ico-item" aria-hidden="true">✕</span><span>Excluir operação</span></button>
+            </section>
+            <section class="menu-grupo" aria-labelledby="mg-camadas">
+              <h3 id="mg-camadas">Camadas do mapa</h3>
+              <div role="radiogroup" aria-label="Mapa de fundo">
+                <button class="menu-item menu-radio" type="button" role="radio" data-camada="osm" aria-checked="true"><span class="marca-opcao" aria-hidden="true"></span><span>Mapa (OpenStreetMap)</span></button>
+                <button class="menu-item menu-radio" type="button" role="radio" data-camada="topo" aria-checked="false"><span class="marca-opcao" aria-hidden="true"></span><span>Relevo (OpenTopoMap)</span></button>
+                <button class="menu-item menu-radio" type="button" role="radio" data-camada="satelite" aria-checked="false"><span class="marca-opcao" aria-hidden="true"></span><span>Satélite (Esri)</span></button>
+              </div>
+              <button class="menu-item menu-check" type="button" id="opt-fotos" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Fotos no mapa</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-relatos" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Relatos no mapa</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-trilhas" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Trilhas de todos</span></button>
+            </section>
+            <section class="menu-grupo" aria-labelledby="mg-vis">
+              <h3 id="mg-vis">Visualização</h3>
+              <button class="menu-item" type="button" id="menu-enquadrar"><span class="ico-item" aria-hidden="true">⤢</span><span>Enquadrar todos no mapa</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-nomes" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Nomes no mapa</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-legenda" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Legenda</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-lateral" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Lista de participantes</span></button>
+            </section>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -170,14 +213,19 @@
       <button class="btn btn-pequeno btn-perigo" type="button" id="btn-apagar-faixa">Apagar dados agora</button>
     </div>
 
-    <div class="painel-corpo">
+    <div class="painel-corpo" id="painel-corpo">
       <div id="mapa" role="region" aria-label="Mapa dos participantes"></div>
+
+      <button class="btn btn-pequeno btn-reabrir" type="button" id="btn-mostrar-lateral" aria-controls="lateral" hidden title="Mostrar a lista de participantes">
+        <span aria-hidden="true">«</span> Participantes <span class="contador-mini" id="reabrir-qtd">0</span><span class="ponto-alerta" id="reabrir-alerta" hidden></span>
+      </button>
 
       <aside class="lateral" id="lateral" aria-label="Participantes">
         <div class="lateral-cabeca">
           <div class="linha">
             <h2>Participantes (<span id="qtd-part">0</span>)</h2>
             <button class="btn btn-pequeno btn-recolher" type="button" id="btn-recolher" aria-expanded="true">Recolher</button>
+            <button class="btn btn-pequeno btn-ocultar" type="button" id="btn-ocultar-lateral" aria-controls="lateral" title="Ocultar a lista e usar o mapa inteiro"><span aria-hidden="true">»</span> Ocultar</button>
           </div>
           <div class="resumo" id="resumo"></div>
           <div class="lateral-ferramentas">
@@ -188,6 +236,34 @@
         </div>
         <ul class="lista-participantes" id="lista-part"></ul>
         <p class="lista-vazia" id="lista-vazia">Nenhum participante ainda. Toque em <b>Convidar</b> para compartilhar o link ou o QR Code.</p>
+      </aside>
+
+      <!-- Central de comunicação: mensagens, relatos e fotos -->
+      <aside class="central" id="central" hidden aria-labelledby="central-titulo" role="dialog">
+        <div class="ficha-cabeca central-cabeca">
+          <h2 id="central-titulo">Comunicação</h2>
+          <button class="btn btn-pequeno" type="button" id="central-fechar" aria-label="Fechar comunicação">Fechar</button>
+        </div>
+        <div class="abas central-abas" role="tablist">
+          <button class="btn btn-pequeno btn-ativo" type="button" role="tab" id="aba-msgs" aria-selected="true" aria-controls="painel-msgs">Mensagens e relatos</button>
+          <button class="btn btn-pequeno" type="button" role="tab" id="aba-fotos" aria-selected="false" aria-controls="painel-fotos"><span>Fotos (<span id="qtd-fotos">0</span>)</span></button>
+        </div>
+        <div class="ficha-corpo central-corpo">
+          <div id="painel-msgs" role="tabpanel" aria-labelledby="aba-msgs">
+            <div class="filtros" role="group" aria-label="Filtrar">
+              <button class="btn btn-pequeno btn-ativo" type="button" data-filtro="todas">Todas</button>
+              <button class="btn btn-pequeno" type="button" data-filtro="relatos">Relatos</button>
+              <button class="btn btn-pequeno" type="button" data-filtro="mensagens">Mensagens</button>
+            </div>
+            <ul class="feed" id="feed-msgs"></ul>
+            <p class="muted" id="feed-vazio">Nenhuma mensagem dos participantes ainda. Quando alguém escrever ou relatar algo pelo link, aparece aqui.</p>
+          </div>
+          <div id="painel-fotos" role="tabpanel" aria-labelledby="aba-fotos" hidden>
+            <div class="nota" id="minhas-fotos-fila" hidden></div>
+            <ul class="galeria" id="galeria"></ul>
+            <p class="muted" id="galeria-vazia">Nenhuma foto registrada ainda.</p>
+          </div>
+        </div>
       </aside>
 
       <!-- Ficha do participante -->
@@ -214,9 +290,18 @@
             <div class="comandos" id="ficha-comandos"></div>
             <p class="ajuda" id="ficha-cmd-aviso" hidden></p>
           </div>
-          <div class="ficha-bloco">
-            <h3 id="ficha-msgs-titulo">Mensagens enviadas</h3>
-            <ul class="msgs" id="ficha-msgs"></ul>
+          <div class="ficha-bloco" id="ficha-conversa">
+            <h3 id="ficha-msgs-titulo">Conversa</h3>
+            <ul class="msgs conversa" id="ficha-msgs" aria-live="polite"></ul>
+            <form class="resposta-rapida" id="form-resposta" novalidate>
+              <label class="sr-only" for="resposta-texto">Mensagem</label>
+              <textarea class="campo" id="resposta-texto" rows="2" maxlength="500" placeholder="Escrever mensagem…"></textarea>
+              <button class="btn btn-escuro" type="submit" id="btn-responder">Enviar</button>
+            </form>
+          </div>
+          <div class="ficha-bloco" id="ficha-fotos-bloco" hidden>
+            <h3>Fotos (<span id="ficha-qtd-fotos">0</span>)</h3>
+            <ul class="galeria galeria-mini" id="ficha-fotos"></ul>
           </div>
           <div class="ficha-bloco">
             <h3>Histórico de posições (<span id="ficha-qtd-pontos">0</span> pontos)</h3>
@@ -254,9 +339,11 @@
   <script src="/api/config"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js" integrity="sha384-eXVCORTRlv4FUUgS/xmOyr66XBVraen8ATNLMESp92FKXLAMiKkerixTiBvXriZr" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" integrity="sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k" crossorigin="anonymous"></script>
   <script src="js/comunicacao.js"></script>
   <script src="js/interface.js"></script>
+  <script src="js/fotos.js"></script>
   <script src="js/militar.js"></script>
 </body>
 </html>

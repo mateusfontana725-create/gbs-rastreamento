@@ -5,12 +5,14 @@ civis voluntários e militares durante operações de busca e salvamento, e envi
 ao celular de cada participante.
 
 - **`/militar.html`**: painel do bombeiro responsável (login obrigatório). Mapa, lista, trilhas, fichas,
-  mensagens, equipe de responsáveis e a posição de cada responsável. Funciona no computador, no tablet e no celular.
+  mensagens nos dois sentidos, relatos de campo, fotos georreferenciadas, equipe de responsáveis e a
+  posição de cada responsável. Funciona no computador, no tablet e no celular.
 - **`/civil.html#t=…`**: página do participante. Só abre com o link (ou QR Code) gerado pelo painel.
-  O participante informa nome, CPF e celular; o encerramento do rastreamento é feito pelo responsável.
+  O participante informa nome, CPF e celular, conversa com a equipe, relata pistas e envia fotos;
+  o encerramento do rastreamento é feito pelo responsável.
 
 Tecnologias: HTML/CSS/JavaScript puros, Leaflet + OpenStreetMap, **Supabase** (Postgres, Auth,
-Realtime) e **Vercel** (hospedagem e duas funções de servidor). Não há etapa de compilação.
+Realtime, Storage privado para as fotos) e **Vercel** (hospedagem e três funções de servidor). Não há etapa de compilação.
 
 ---
 
@@ -24,6 +26,8 @@ Realtime) e **Vercel** (hospedagem e duas funções de servidor). Não há etapa
    ← alerta em tela cheia      ◄──Realtime / consulta──  mensagens  ◄──RPC enviar_mensagem──  comandos
    → confirmar_mensagem        ──────────────────────►  mensagens   ──Realtime──►  "confirmada"
    → sinal_vida (a cada 15 s)  ──────────────────────►  participantes ─Realtime──►  conectado / instável
+   → participante_enviar_mensagem ───────────────────►  mensagens   ──Realtime──►  central + aviso
+   → foto (Storage privado) + registrar_foto ────────►  fotos       ──Realtime──►  câmera no mapa
 ```
 
 - **Tempo real**: o painel recebe as mudanças pelo Supabase Realtime. Se o tempo real cair, o painel
@@ -58,14 +62,90 @@ mapa e toca um alarme no painel.
 
 ### Vários responsáveis na mesma operação
 
-- Quem cria a operação pode adicionar outros responsáveis pelo e-mail, no botão **Equipe** (só quem
+- Quem cria a operação pode adicionar outros responsáveis pelo e-mail, em **Ferramentas → Equipe de responsáveis** (só quem
   já tem acesso ao painel). Qualquer responsável da operação também pode adicionar; **só o criador remove**.
 - Todos veem o mesmo mapa, os mesmos participantes e mensagens, e podem enviar orientações (a
   mensagem mostra ao participante quem a enviou).
-- **Minha posição** (botão no topo do painel): o responsável compartilha a própria localização.
+- **Minha posição** (em **Ferramentas**): o responsável compartilha a própria localização.
+  Enquanto está ligada, um ponto ciano aparece no botão **Ferramentas**.
   Os outros responsáveis o veem como um losango ciano **R**; civis e militares de campo **não** veem.
 - Pela ficha de outro responsável é possível mandar ATENÇÃO, CONFIRME ou mensagem livre; ela chega
   como alerta no painel dele, com confirmação de leitura.
+
+### Comunicação com os participantes (mensagens e relatos)
+
+- Na página do participante há a seção **Comunicação com a equipe**: ele escreve espontaneamente e
+  escolhe o tipo — **Mensagem**, **Possível pista**, **Vestígio**, **Objeto**, **Obstáculo** ou
+  **Outro**. Para os relatos, "Incluir minha localização" já vem marcado (a posição do GPS vai junto;
+  se não houver GPS, a mensagem segue **sem** coordenadas e ele é avisado).
+- A conversa mostra o histórico nos dois sentidos, com remetente e horário. Mensagens escritas sem
+  internet ficam guardadas no aparelho e são enviadas quando a conexão volta (sem duplicar).
+- No painel, o botão **Mensagens** mostra quantas não foram lidas; a aba do navegador mostra o número
+  entre parênteses; um aviso (com som) aparece a cada mensagem nova e, ao tocar, abre a conversa. O
+  participante ganha o selo "Mensagem nova" na lista e um ✉ no marcador.
+- **Central de comunicação** (botão **Mensagens**): todas as mensagens e relatos, com filtros
+  (Todas / Relatos / Mensagens), **Ver no mapa** e **Responder**. Abrir a central ou a conversa marca
+  como lidas, e o participante vê "Lida por Sgt Fulano às 10:32".
+- **Relatos com localização** aparecem no mapa como marcadores laranja (P = pista, V = vestígio,
+  O = objeto, ! = obstáculo…); tocar abre o texto, o autor, o horário e as coordenadas.
+- Na **ficha**, a seção **Conversa** junta o que o participante escreveu e as orientações enviadas, com
+  um campo de **resposta rápida** (mensagem livre, sem abrir janela). Os comandos (RETORNE, PARE etc.)
+  continuam iguais.
+
+### Fotografias georreferenciadas
+
+- **Quem pode registrar**: participantes (civis e militares, pelo link) e responsáveis (**Ferramentas →
+  Registrar foto**). Dá para **tirar a foto** com a câmera ou **escolher da galeria/arquivo**.
+- **Prévia antes de salvar**: a pessoa vê a foto, o local e pode escrever uma descrição; **Salvar** ou **Cancelar**.
+- **Localização**: foto da câmera usa o GPS do momento do registro; foto da galeria permite escolher entre
+  o local gravado na própria foto (EXIF), a posição atual ou **sem localização**. Sem GPS, ou com
+  precisão pior que ±500 m (localização aproximada pela rede), a foto é salva **sem coordenadas** e a
+  pessoa é avisada — **o sistema nunca inventa coordenadas**. Fotos sem localização aparecem na galeria,
+  não no mapa.
+- **Horários**: guarda o horário da captura (câmera ou EXIF) e o horário em que chegou ao sistema; quando
+  a foto foi enviada bem depois (falta de internet), o painel mostra a diferença.
+- **Conexões ruins**: a imagem é reduzida no aparelho (máx. 1600 px, JPEG — em geral 200–600 KB). No
+  participante, a foto fica guardada no celular (IndexedDB) até conseguir enviar, com **Tentar agora** e
+  **Descartar** em caso de falha; mensagens claras para sem internet, envio lento (> 90 s), arquivo
+  grande demais ou operação encerrada.
+- **No mapa**: ícone de **câmera** (violeta) no local de cada foto. Fotos e relatos próximos se agrupam
+  num círculo com o número; ao aproximar eles se separam, e vários no mesmo ponto se abrem em leque.
+  Os participantes ficam sempre por cima.
+- **Janela da foto**: imagem, autor (e se é civil, militar ou responsável), data/hora da captura e do
+  recebimento, latitude, longitude, precisão, origem da posição e descrição; **Ampliar** (tela cheia;
+  tocar na imagem mostra o tamanho real), **Anterior/Próxima**, **Ver no mapa** e **Ficha** do autor.
+  Também há a aba **Fotos** na central (galeria) e a seção **Fotos** na ficha de cada participante.
+- A foto é **um registro de uma posição**: não entra no histórico nem altera a trilha.
+
+### Organização do painel
+
+- A barra superior tem só **Mensagens** e **Ferramentas** (☰). O menu Ferramentas agrupa:
+  - **Operação**: Minha posição, Registrar foto, Convidar participantes, Equipe de responsáveis,
+    Mensagens/relatos/fotos, Encerrar operação e Excluir operação (só para quem pode);
+  - **Camadas do mapa**: Mapa (OpenStreetMap), Relevo, Satélite, Fotos no mapa, Relatos no mapa, Trilhas de todos;
+  - **Visualização**: Enquadrar todos, Nomes no mapa, Legenda, Lista de participantes.
+  Fecha ao escolher uma opção, ao tocar fora, no **Fechar** ou com **Esc**. No celular, abre como uma
+  folha na parte de baixo da tela. As preferências do mapa ficam lembradas no aparelho.
+- Ficam sempre no mapa: **zoom (+/−)**, **⤢ enquadrar todos** e a escala.
+- **Ocultar a lista de participantes**: botão **» Ocultar** no topo da lista. O mapa ocupa toda a área
+  (transição suave) e aparece o botão discreto **« Participantes N** para reabrir — com um ponto amarelo
+  piscando se houver pedido de ajuda, pedido de saída ou mensagem nova. O rastreamento, o tempo real
+  e as fichas continuam funcionando normalmente; a escolha fica lembrada no aparelho.
+
+### Excluir uma operação
+
+- Disponível para **quem criou a operação** e para **administradores** que façam parte dela: na lista de
+  operações (botão **Excluir operação**) e em **Ferramentas → Excluir operação**. Os demais nem veem o
+  botão, e o banco recusa a exclusão se alguém tentar por fora. Participantes nunca podem excluir.
+- A janela de confirmação lista tudo o que será apagado e exige **digitar o nome da operação**.
+- Numa **única transação** no banco são apagados a operação, participantes, posições/trilhas,
+  mensagens e relatos, registros de fotos, equipe de responsáveis e os **tokens dos links** (o QR Code
+  deixa de funcionar na hora). Os arquivos das fotos entram numa fila (`arquivos_pendentes`) e o painel
+  os apaga do Storage em seguida. Se a remoção de algum arquivo falhar, ele fica registrado na fila e a
+  **limpeza diária** (`/api/limpeza`) apaga depois — nenhum arquivo fica esquecido. O painel informa
+  o resultado (sucesso, ou quantos arquivos ficaram para a limpeza).
+- Quem estiver com o link aberto para de enviar localização, mensagens e fotos e vê
+  "A operação foi excluída…". Outras operações e os cadastros de responsáveis não são afetados.
 
 ### Encerramento da participação
 
@@ -93,13 +173,14 @@ rastreamento-sar/
 │   └── js/
 │       ├── comunicacao.js      cliente Supabase, chamadas ao servidor, erros, relógio, formatação
 │       ├── interface.js        avisos e caixas de confirmação
+│       ├── fotos.js            fotos: leitura de EXIF, redução, prévia, envio ao Storage privado
 │       ├── militar.js          lógica do painel
-│       └── civil.js            lógica do participante (GPS, fila offline, mensagens)
+│       └── civil.js            lógica do participante (GPS, fila offline, mensagens, relatos, fotos)
 ├── api/
 │   ├── config.js               entrega ao navegador só a URL e a chave PÚBLICA (de variáveis de ambiente)
 │   ├── limpeza.js              limpeza diária dos dados vencidos (usa a chave SECRETA, só no servidor)
 │   └── responsaveis.js         cria login e redefine senha de responsáveis (só administradores; chave SECRETA)
-├── supabase/schema.sql         tabelas, regras de segurança (RLS), funções e tempo real
+├── supabase/schema.sql         tabelas, regras de segurança (RLS), funções, tempo real e bucket de fotos
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
 └── package.json
@@ -139,7 +220,11 @@ rastreamento-sar/
    - **Publishable key** (`sb_publishable_…`) — ou, em projetos antigos, a **anon key**;
    - **Secret key** (`sb_secret_…`) — ou, em projetos antigos, a **service_role key**. **Nunca** coloque esta em arquivos do site.
 8. (Conferência) Em **Database → Publications → supabase_realtime**, as tabelas `participantes`,
-   `posicoes` e `mensagens` devem aparecer marcadas. O `schema.sql` já faz isso.
+   `posicoes`, `mensagens` e `fotos` devem aparecer marcadas. O `schema.sql` já faz isso.
+9. (Conferência) Em **Storage**, deve existir o bucket **`fotos`**, **privado** (não público), com
+   limite de 10 MB e só `image/jpeg`. O `schema.sql` cria o bucket e as regras de acesso
+   (`gbs_fotos_enviar`, `gbs_fotos_ver`, `gbs_fotos_apagar`). Se o SQL Editor recusar a parte do
+   Storage por permissão, crie o bucket `fotos` manualmente como **privado** e rode o `schema.sql` de novo.
 
 > O cadastro aberto de usuários por e-mail pode ficar como está: o acesso ao painel depende
 > **exclusivamente** da tabela `responsaveis`, que só um administrador altera (pelo painel).
@@ -187,7 +272,7 @@ Depois do deploy, o Vercel mostra o domínio do projeto, por exemplo `https://ra
 
 1. **Painel do militar**: `https://rastreamento-sar.vercel.app/militar.html`
    (o endereço raiz `/` também redireciona para ele). Faça login e crie a operação.
-2. **Link do participante**: é gerado **por operação**, no botão **Convidar** do painel. Há duas abas:
+2. **Link do participante**: é gerado **por operação**, em **Ferramentas → Convidar participantes**. Há duas abas:
    - **Link para CIVIS** — `https://rastreamento-sar.vercel.app/civil.html#t=<token de 64 caracteres>`
      Quem entra por ele sempre aparece como **civil**.
    - **Link para MILITARES** — outro token; permite escolher **militar** (ou civil). Compartilhe só com militares.
@@ -215,10 +300,10 @@ encerrada, e o token fica após o `#` (não é enviado aos servidores nem aparec
 **Responsável**: login → **Nova operação** (nome/código e política de retenção) → **Convidar** →
 acompanhar o mapa. Na lista: **◎** centraliza o participante, **Trilha** mostra/oculta a trilha dele.
 **Mostrar trilhas / Ocultar trilhas** atuam em todos. Toque no nome ou no marcador para abrir a
-**ficha** (dados, precisão, histórico de posições, comandos e estado das mensagens). Os comandos
+**ficha** (dados, precisão, conversa, fotos, histórico de posições, comandos e estado das mensagens). Os comandos
 RETORNE, ATENÇÃO, MUDE A ROTA e PARE pedem confirmação antes do envio, e o texto pode ser complementado
-(ex.: "Retorne ao PC 2"). Botões do mapa: **⤢** enquadra todos, **Aa** mostra/oculta os nomes, e o
-seletor de camadas troca entre Mapa, Relevo e Satélite.
+(ex.: "Retorne ao PC 2"). No mapa, **⤢** enquadra todos; nomes, legenda, camadas (Mapa, Relevo,
+Satélite), fotos, relatos e a lista ficam em **Ferramentas** (seção 1).
 
 **Participante**: abre o link → digita nome, **CPF** e **celular** → **INICIAR RASTREAMENTO** → permite
 a localização. CPF e celular são obrigatórios para civis e opcionais para militares (link de
@@ -228,14 +313,18 @@ ligada (a opção "Manter a tela ligada" já vem marcada). Para sair, toca em **
 **Na ficha do participante**, o CPF aparece mascarado (`***.456.789-**`, com o botão "mostrar") e
 o celular tem link para **ligar** direto.
 
-**Encerrar**: **Encerrar operação** → os celulares param de enviar e mostram "Operação encerrada".
+**Participante — mensagens e fotos**: na mesma página, **Comunicação com a equipe** (escrever ou
+relatar pista/vestígio/objeto/obstáculo) e **Fotos** (**TIRAR FOTO** ou **Escolher da galeria**).
+
+**Encerrar**: **Ferramentas → Encerrar operação** → os celulares param de enviar e mostram "Operação encerrada".
 Os dados são apagados conforme a retenção escolhida:
 
 | Retenção escolhida | O que acontece |
 |---|---|
-| Ao encerrar | participantes, posições, trilhas e mensagens são apagados **no mesmo instante** |
+| Ao encerrar | participantes, posições, trilhas, mensagens e fotos são apagados **no mesmo instante** |
 | 24 h / 3 / 7 / 30 dias | os dados ficam disponíveis para consulta e são apagados pela limpeza diária após o prazo |
 | Qualquer uma | o botão **Apagar dados agora** apaga antecipadamente |
+| Excluir operação | apaga tudo **e a própria operação** (some da lista), na hora — ver seção 1 |
 
 Salvaguardas: operações esquecidas abertas por mais de 30 dias são encerradas automaticamente, e
 identidades anônimas sem participação há mais de 7 dias são removidas. A limpeza roda todo dia às
@@ -257,13 +346,16 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 | Autorização no backend | nenhuma tabela aceita gravação direta do navegador; toda escrita passa por funções que validam dono, operação ativa e dados |
 | Separação entre operações | RLS: o responsável só lê as operações em que está na equipe; o participante só lê o próprio cadastro e as próprias mensagens |
 | Coordenadas não públicas | **nenhum participante lê posições**, nem as próprias, nem as dos responsáveis; só os responsáveis da operação |
-| Validação de dados | latitude/longitude/precisão/horário validados no servidor; lote máximo de 500 pontos; texto de mensagem até 500 caracteres; limite de 60 mensagens por minuto e de 300 participantes por operação |
+| Mensagens e relatos | o participante só lê a própria conversa; os responsáveis leem as da operação. Envio só pela função `participante_enviar_mensagem` (valida participante, operação ativa, tipo, texto ≤ 1000 caracteres, coordenadas; limite de 20 por minuto; reenvio sem duplicar) |
+| Fotos | bucket **privado**: não existe link público. A imagem só é vista por **link temporário assinado (1 h)**, gerado apenas para os responsáveis da operação ou para o próprio autor. O envio só é aceito na pasta `operação/participante/` do próprio participante, com a operação ativa, JPEG até 10 MB; o registro (`registrar_foto`) confere que o arquivo existe e valida as coordenadas |
+| Exclusão de operação | só o criador ou um administrador da equipe (`excluir_operacao`, verificado no banco); transação única; arquivos removidos do Storage com fila de pendências e limpeza diária; tokens invalidados na hora |
+| Validação de dados | latitude/longitude/precisão/horário validados no servidor; lote máximo de 500 pontos; orientação até 500 caracteres; limite de 60 orientações por minuto e de 300 participantes por operação |
 | Segredos | só a chave **pública** chega ao navegador (via `/api/config`, lida de variável de ambiente). A chave secreta fica no servidor (`/api/limpeza`) |
 | Cabeçalhos | CSP restritiva, HSTS, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` (envia só o domínio do site, exigido pelo OpenStreetMap; o token do link fica após o `#` e nunca é enviado), `Permissions-Policy` (geolocalização só no próprio site) |
 | Bibliotecas externas | carregadas com versão fixa e verificação de integridade (SRI) |
 
 **Domínio próprio no Supabase**: se usar um domínio personalizado no Supabase, acrescente-o ao
-`connect-src` da política CSP em `vercel.json`.
+`connect-src` **e ao `img-src`** (links assinados das fotos) da política CSP em `vercel.json`.
 
 ---
 
@@ -289,6 +381,13 @@ Estas limitações são da plataforma web móvel, não do código, e estão comu
 4. **iPhone (Safari)**: a localização com a tela bloqueada é ainda mais restrita, e as notificações
    web só funcionam com o site instalado na tela inicial (iOS 16.4+).
 5. **Precisão**: depende do aparelho e do céu aberto. Em mata fechada ou entre prédios, ±20–50 m é comum.
+6. **Fotos e mensagens com a página fechada**: na página do participante, ficam guardadas no aparelho e
+   são enviadas quando ele voltar à página. No painel do responsável, a fila de fotos fica só na memória:
+   o painel avisa antes de ser fechado com foto pendente.
+7. **Câmera**: "TIRAR FOTO" abre o aplicativo de câmera do próprio celular. No computador, o botão abre
+   a escolha de arquivo. Fotos HEIC muito grandes podem não abrir em navegadores antigos (a pessoa é avisada).
+8. **Lida por**: indica que algum responsável abriu a central ou a conversa; não garante que a
+   pessoa leu com atenção.
 
 ### Solução para segundo plano: aplicativo Android (rastreamento com a tela apagada)
 
@@ -331,10 +430,16 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 14 | No celular do civil, tocar em **Solicitar encerramento** | o painel toca alarme e mostra "Pediu para sair"; o rastreamento continua; ao **Liberar saída**, o celular mostra "Saída liberada" |
 | 15 | Adicionar um segundo responsável em **Equipe** e ligar **Minha posição** nos dois painéis | cada um vê o outro no mapa (losango ciano); mensagem de um para o outro chega como alerta |
 | 16 | Abrir o painel no celular (em pé e deitado) e no tablet | mapa, lista e ficha ficam utilizáveis, sem rolagem lateral |
+| 17 | No celular do civil, escolher **Possível pista**, escrever e enviar | o painel avisa com som, o botão **Mensagens** mostra 1, o marcador laranja aparece no mapa; ao abrir, o civil vê "Lida por …" |
+| 18 | Responder pela ficha (**Conversa**) | o civil recebe o alerta em tela cheia e confirma |
+| 19 | No civil, **TIRAR FOTO** → conferir → **SALVAR FOTO** | a câmera aparece no mapa no ponto; tocar abre a foto com autor, horários e coordenadas; **Ampliar** mostra em tela cheia |
+| 20 | Repetir com o celular em modo avião | a foto fica "Na fila"; ao voltar a internet, é enviada sozinha |
+| 21 | **Ferramentas**: trocar camada, ocultar nomes, ocultar a lista | cada opção funciona e o menu fecha; com a lista oculta, o mapa ocupa a tela e **« Participantes** reabre |
+| 22 | Criar uma operação de teste, registrar dados e **Excluir operação** (digitando o nome) | some da lista; o link/QR do participante para de funcionar; no Supabase, **Storage → fotos** não tem mais a pasta da operação |
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (153 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+- **Backend (214 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
   supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda).
   Foram verificadas as regras de RLS e de permissão (intruso, outro responsável, participante de
   outra operação, acesso sem login), a validação e a deduplicação de posições, o tipo civil/militar
@@ -342,10 +447,15 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   administradores, senha provisória, redefinir senha, desativar/reativar, proteção contra ficar sem
   administrador), a equipe de responsáveis (adicionar, remover,
   isolamento), a posição e as mensagens entre responsáveis, a validação de CPF e celular, o pedido
-  de encerramento (recusar e liberar), o encerramento com e sem retenção e a limpeza diária.
-- **Ponta a ponta (71 verificações)**: no Chromium, com o painel no computador, no tablet e no
+  de encerramento (recusar e liberar), o encerramento com e sem retenção e a limpeza diária,
+  mensagens e relatos dos participantes (validação, limite, reenvio sem duplicar, "lida por",
+  isolamento), fotos (regras do Storage, caminho, registro, links assinados, quem vê) e a exclusão de
+  operação (permissões, transação, fila de arquivos, limpeza diária, isolamento das outras operações).
+- **Ponta a ponta (127 verificações)**: no Chromium, com o painel no computador, no tablet e no
   celular (em pé e deitado), dois celulares Android simulados com GPS em movimento e dois
-  responsáveis na mesma operação. Cobre todos os itens da tabela acima, a queda de internet com
+  responsáveis na mesma operação. Cobre todos os itens da tabela acima (inclusive mensagens, relatos,
+  fotos com e sem localização, galeria, menu Ferramentas, lista oculta e exclusão conferida direto no
+  banco e no armazenamento), a queda de internet com
   recuperação sem duplicar pontos e a política CSP real do `vercel.json` (sem nenhum erro de
   JavaScript ou de segurança).
 - **Administração no navegador (20 verificações)**: cadastro pelo painel, primeiro acesso com a senha

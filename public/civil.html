@@ -126,9 +126,43 @@
         <label class="linha-opcao"><input type="checkbox" id="opt-tela" checked> Manter a tela ligada (recomendado)</label>
         <button class="btn" type="button" id="btn-notif" hidden>Ativar alertas de mensagem</button>
 
-        <h2 class="titulo-secao">Mensagens do responsável</h2>
-        <ul class="hist-civil" id="hist-msgs"></ul>
-        <p class="muted" id="hist-vazio">Nenhuma mensagem até agora.</p>
+        <!-- Comunicação com a equipe -->
+        <h2 class="titulo-secao">Comunicação com a equipe</h2>
+        <div class="chat cartao">
+          <ul class="chat-lista" id="hist-msgs" aria-live="polite"></ul>
+          <p class="muted chat-vazio" id="hist-vazio">Nenhuma mensagem até agora. Use o campo abaixo para falar com os responsáveis.</p>
+          <form class="chat-form" id="form-msg" novalidate>
+            <div class="cat-chips" role="radiogroup" aria-label="O que você quer informar">
+              <label><input type="radio" name="cat" value="MENSAGEM" checked><span>Mensagem</span></label>
+              <label><input type="radio" name="cat" value="PISTA"><span>Possível pista</span></label>
+              <label><input type="radio" name="cat" value="VESTIGIO"><span>Vestígio</span></label>
+              <label><input type="radio" name="cat" value="OBJETO"><span>Objeto</span></label>
+              <label><input type="radio" name="cat" value="OBSTACULO"><span>Obstáculo</span></label>
+              <label><input type="radio" name="cat" value="OUTRO"><span>Outro</span></label>
+            </div>
+            <label class="sr-only" for="msg-texto">Mensagem para a equipe</label>
+            <textarea class="campo" id="msg-texto" maxlength="1000" rows="2" placeholder="Escreva para a equipe…"></textarea>
+            <div class="chat-rodape">
+              <label class="linha-opcao"><input type="checkbox" id="msg-local"> Incluir minha localização</label>
+              <button class="btn btn-escuro" type="submit" id="btn-enviar-msg">ENVIAR</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Fotos -->
+        <h2 class="titulo-secao">Fotos</h2>
+        <div class="fotos-botoes">
+          <label class="btn btn-escuro btn-foto">
+            <span class="ico-camera" aria-hidden="true"></span> TIRAR FOTO
+            <input class="sr-only" type="file" accept="image/*" capture="environment" id="foto-camera">
+          </label>
+          <label class="btn btn-foto">
+            Escolher da galeria
+            <input class="sr-only" type="file" accept="image/*" id="foto-galeria">
+          </label>
+        </div>
+        <p class="ajuda">A foto é salva com o local e o horário. Sem internet, ela fica guardada no celular e é enviada depois.</p>
+        <ul class="fotos-minhas" id="fotos-minhas"></ul>
 
         <div class="espaco"></div>
         <div class="saida-pendente" id="saida-pendente" role="status" hidden>
@@ -178,6 +212,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
   <script src="js/comunicacao.js"></script>
   <script src="js/interface.js"></script>
+  <script src="js/fotos.js"></script>
   <script src="js/civil.js"></script>
 </body>
 </html>

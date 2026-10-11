@@ -137,6 +137,71 @@ create table if not exists public.mensagens (
   resposta         text check (resposta in ('CIENTE', 'ESTOU_BEM', 'PRECISO_AJUDA'))
 );
 create index if not exists mensagens_participante_idx on public.mensagens (participante_id, criada_em desc);
+
+-- Mensagens nos dois sentidos:
+--   direcao 'saida'   = do responsável para o participante (comandos e mensagens livres)
+--   direcao 'entrada' = do participante para os responsáveis (mensagens e relatos de campo)
+alter table public.mensagens add column if not exists direcao text not null default 'saida';
+alter table public.mensagens add column if not exists categoria text;
+alter table public.mensagens add column if not exists lat double precision;
+alter table public.mensagens add column if not exists lng double precision;
+alter table public.mensagens add column if not exists precisao real;
+alter table public.mensagens add column if not exists posicao_em timestamptz;
+alter table public.mensagens add column if not exists lida_em timestamptz;
+alter table public.mensagens add column if not exists lida_por_nome text;
+alter table public.mensagens add column if not exists client_id uuid;
+alter table public.mensagens drop constraint if exists mensagens_direcao_check;
+alter table public.mensagens add constraint mensagens_direcao_check check (direcao in ('saida', 'entrada'));
+alter table public.mensagens drop constraint if exists mensagens_categoria_check;
+alter table public.mensagens add constraint mensagens_categoria_check
+  check (categoria is null or categoria in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO'));
+alter table public.mensagens drop constraint if exists mensagens_tipo_check;
+alter table public.mensagens add constraint mensagens_tipo_check
+  check (tipo in ('RETORNE', 'ATENCAO', 'MUDE_ROTA', 'PARE', 'CONFIRME', 'PERSONALIZADA', 'PARTICIPANTE'));
+alter table public.mensagens drop constraint if exists mensagens_texto_check;
+alter table public.mensagens add constraint mensagens_texto_check check (char_length(texto) <= 1000);
+create unique index if not exists mensagens_cliente_unico on public.mensagens (participante_id, client_id) where client_id is not null;
+create index if not exists mensagens_entrada_idx on public.mensagens (operacao_id, direcao, lida_em);
+
+-- Fotografias georreferenciadas. O arquivo fica no Storage (bucket privado "fotos"),
+-- no caminho <operacao_id>/<participante_id>/<client_id>.jpg. A foto é um registro
+-- de uma posição: não altera a trilha.
+create table if not exists public.fotos (
+  id               uuid primary key default gen_random_uuid(),
+  operacao_id      uuid not null references public.operacoes(id) on delete cascade,
+  participante_id  uuid not null references public.participantes(id) on delete cascade,
+  autor_nome       text not null,
+  autor_tipo       text not null,
+  client_id        uuid not null,
+  caminho          text not null unique,
+  lat              double precision check (lat between -90 and 90),
+  lng              double precision check (lng between -180 and 180),
+  precisao         real check (precisao >= 0),
+  posicao_em       timestamptz,
+  origem_posicao   text not null check (origem_posicao in ('gps', 'exif', 'nenhuma')),
+  capturada_em     timestamptz,
+  registrada_em    timestamptz not null default now(),
+  legenda          text not null default '' check (char_length(legenda) <= 300),
+  bytes            integer,
+  largura          integer,
+  altura           integer,
+  unique (participante_id, client_id),
+  check ((lat is null) = (lng is null))
+);
+create index if not exists fotos_operacao_idx on public.fotos (operacao_id, registrada_em);
+
+-- Arquivos do Storage que precisam ser apagados (fotos de operações excluídas ou
+-- com retenção vencida). O painel apaga na hora; o que falhar é apagado pela
+-- limpeza diária. Assim nenhum arquivo fica esquecido.
+create table if not exists public.arquivos_pendentes (
+  caminho       text primary key,
+  bucket        text not null default 'fotos',
+  operacao_id   uuid,
+  excluido_por  uuid,
+  criado_em     timestamptz not null default now(),
+  tentativas    integer not null default 0,
+  ultimo_erro   text
+);
 create index if not exists mensagens_operacao_idx on public.mensagens (operacao_id, criada_em);
 
 -- Responsáveis adicionais de cada operação (além de quem a criou).
@@ -213,6 +278,8 @@ alter table public.participantes enable row level security;
 alter table public.posicoes      enable row level security;
 alter table public.mensagens     enable row level security;
 alter table public.operacao_responsaveis enable row level security;
+alter table public.fotos enable row level security;
+alter table public.arquivos_pendentes enable row level security;   -- sem políticas: ninguém lê pelo navegador
 
 drop policy if exists responsaveis_ler_proprio on public.responsaveis;
 create policy responsaveis_ler_proprio on public.responsaveis
@@ -239,15 +306,21 @@ create policy mensagens_ler on public.mensagens
   for select to authenticated
   using (public.dono_operacao(operacao_id) or public.eh_meu_participante(participante_id));
 
+drop policy if exists fotos_ler on public.fotos;
+create policy fotos_ler on public.fotos
+  for select to authenticated
+  using (public.dono_operacao(operacao_id) or public.eh_meu_participante(participante_id));
+
 drop policy if exists operacao_responsaveis_ler on public.operacao_responsaveis;
 create policy operacao_responsaveis_ler on public.operacao_responsaveis
   for select to authenticated
   using (public.dono_operacao(operacao_id));
 
 -- Defesa em profundidade: o navegador nunca escreve direto nas tabelas.
-revoke all on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis from anon;
-revoke insert, update, delete, truncate on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis from authenticated;
-grant select on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis to authenticated;
+revoke all on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis, public.fotos, public.arquivos_pendentes from anon;
+revoke insert, update, delete, truncate on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis, public.fotos from authenticated;
+revoke all on public.arquivos_pendentes from authenticated;
+grant select on public.responsaveis, public.operacoes, public.participantes, public.posicoes, public.mensagens, public.operacao_responsaveis, public.fotos to authenticated;
 
 -- ---------------------------------------------------------------------
 -- 4. FUNÇÕES (RPC) — RESPONSÁVEL MILITAR
@@ -394,7 +467,7 @@ begin
 
   -- proteção contra envio em massa acidental
   select count(*) into v_recentes from public.mensagens
-   where operacao_id = v_part.operacao_id and criada_em > now() - interval '1 minute';
+   where operacao_id = v_part.operacao_id and direcao = 'saida' and criada_em > now() - interval '1 minute';
   if v_recentes >= 60 then
     raise exception 'muitas_mensagens';
   end if;
@@ -730,6 +803,375 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------
+-- 4e. MENSAGENS E RELATOS ENVIADOS PELOS PARTICIPANTES
+-- ---------------------------------------------------------------------
+
+-- O participante escreve aos responsáveis (mensagem livre ou relato de campo:
+-- objeto, vestígio, possível pista, obstáculo, outro), com localização opcional.
+-- client_id torna o reenvio (após falta de internet) seguro: não duplica.
+create or replace function public.participante_enviar_mensagem(
+  p_participante uuid, p_categoria text, p_texto text,
+  p_lat double precision default null, p_lng double precision default null,
+  p_precisao real default null, p_posicao_em timestamptz default null, p_client_id uuid default null)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_part public.participantes%rowtype;
+  v_status text;
+  v_texto text := btrim(coalesce(p_texto, ''));
+  v_cat text := coalesce(p_categoria, 'MENSAGEM');
+  v_msg public.mensagens%rowtype;
+  v_recentes integer;
+begin
+  select * into v_part from public.participantes where id = p_participante and user_id = auth.uid();
+  if not found or v_part.tipo = 'responsavel' then
+    raise exception 'participante_invalido';
+  end if;
+  if v_part.liberado_em is not null then
+    raise exception 'participante_liberado';
+  end if;
+  if v_part.removido then
+    raise exception 'participante_removido';
+  end if;
+  select status into v_status from public.operacoes where id = v_part.operacao_id;
+  if v_status <> 'ativa' then
+    raise exception 'operacao_encerrada';
+  end if;
+  if v_cat not in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO') then
+    raise exception 'tipo_invalido';
+  end if;
+  if v_texto = '' then
+    raise exception 'texto_obrigatorio';
+  end if;
+  if char_length(v_texto) > 1000 then
+    raise exception 'texto_longo';
+  end if;
+  -- Localização: só a que o aparelho informou; nunca é inventada.
+  if (p_lat is null) <> (p_lng is null)
+     or (p_lat is not null and (p_lat not between -90 and 90 or p_lng not between -180 and 180 or (p_lat = 0 and p_lng = 0))) then
+    raise exception 'posicao_invalida';
+  end if;
+
+  if p_client_id is not null then
+    select * into v_msg from public.mensagens where participante_id = v_part.id and client_id = p_client_id;
+    if found then
+      return row_to_json(v_msg);   -- reenvio: já estava gravada
+    end if;
+  end if;
+
+  select count(*) into v_recentes from public.mensagens
+   where participante_id = v_part.id and direcao = 'entrada' and criada_em > now() - interval '1 minute';
+  if v_recentes >= 20 then
+    raise exception 'muitas_mensagens';
+  end if;
+
+  insert into public.mensagens (operacao_id, participante_id, remetente_id, remetente_nome, tipo, texto,
+                                direcao, categoria, lat, lng, precisao, posicao_em, client_id, entregue_em)
+  values (v_part.operacao_id, v_part.id, auth.uid(), v_part.nome, 'PARTICIPANTE', v_texto,
+          'entrada', v_cat, p_lat, p_lng,
+          case when p_precisao between 0 and 100000 then p_precisao end,
+          case when p_lat is not null then least(coalesce(p_posicao_em, now()), now()) end,
+          p_client_id, now())
+  returning * into v_msg;
+
+  update public.participantes set ultimo_contato_em = now() where id = v_part.id;
+  return row_to_json(v_msg);
+end;
+$$;
+
+-- Os responsáveis marcam como lidas as mensagens recebidas (o participante vê "lida por …").
+create or replace function public.marcar_lidas(p_ids uuid[])
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_nome text;
+  v_qtd integer;
+begin
+  if p_ids is null or cardinality(p_ids) = 0 then
+    return 0;
+  end if;
+  if cardinality(p_ids) > 500 then
+    raise exception 'lote_invalido';
+  end if;
+  select nome into v_nome from public.responsaveis where user_id = auth.uid() and ativo;
+  if v_nome is null then
+    raise exception 'sem_permissao';
+  end if;
+  update public.mensagens m
+     set lida_em = now(), lida_por_nome = v_nome
+   where m.id = any (p_ids)
+     and m.direcao = 'entrada'
+     and m.lida_em is null
+     and public.dono_operacao(m.operacao_id);
+  get diagnostics v_qtd = row_count;
+  return v_qtd;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 4f. FOTOGRAFIAS GEORREFERENCIADAS
+-- ---------------------------------------------------------------------
+
+-- Caminho válido: <operacao_id>/<participante_id>/<client_id>.jpg  → {operacao, participante, client}
+create or replace function public.caminho_foto_partes(p_nome text)
+returns uuid[]
+language plpgsql immutable
+as $$
+begin
+  if coalesce(p_nome, '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$' then
+    return null;
+  end if;
+  return array[split_part(p_nome, '/', 1)::uuid, split_part(p_nome, '/', 2)::uuid,
+               replace(split_part(p_nome, '/', 3), '.jpg', '')::uuid];
+end;
+$$;
+
+-- Regras do Storage (bucket "fotos"):
+--   enviar: só o próprio participante, na pasta dele, com a operação ativa;
+--   ver: responsáveis da operação ou o próprio autor;
+--   apagar: só arquivos cujo registro já foi excluído (fila arquivos_pendentes).
+create or replace function public.pode_enviar_foto(p_nome text)
+returns boolean
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v uuid[] := public.caminho_foto_partes(p_nome);
+begin
+  if v is null then
+    return false;
+  end if;
+  return exists (
+    select 1 from public.participantes p
+      join public.operacoes o on o.id = p.operacao_id
+     where p.id = v[2] and p.operacao_id = v[1] and p.user_id = auth.uid()
+       and not p.removido and p.liberado_em is null and o.status = 'ativa');
+end;
+$$;
+
+create or replace function public.pode_ver_foto(p_nome text)
+returns boolean
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v uuid[] := public.caminho_foto_partes(p_nome);
+begin
+  if v is null then
+    return false;
+  end if;
+  return public.dono_operacao(v[1])
+      or exists (select 1 from public.participantes where id = v[2] and operacao_id = v[1] and user_id = auth.uid())
+      -- quem excluiu a operação precisa "ver" o arquivo para conseguir apagá-lo do Storage
+      or exists (select 1 from public.arquivos_pendentes a where a.caminho = p_nome and a.excluido_por = auth.uid());
+end;
+$$;
+
+create or replace function public.pode_apagar_foto(p_nome text)
+returns boolean
+language plpgsql stable security definer set search_path = public
+as $$
+begin
+  return exists (
+    select 1 from public.arquivos_pendentes a
+     where a.caminho = p_nome and a.bucket = 'fotos'
+       and (a.excluido_por = auth.uid() or (a.operacao_id is not null and public.dono_operacao(a.operacao_id))));
+end;
+$$;
+
+-- Depois de enviar o arquivo ao Storage, o aparelho registra a foto.
+create or replace function public.registrar_foto(
+  p_participante uuid, p_client_id uuid, p_origem text,
+  p_lat double precision default null, p_lng double precision default null, p_precisao real default null,
+  p_posicao_em timestamptz default null, p_capturada_em timestamptz default null, p_legenda text default '',
+  p_bytes integer default null, p_largura integer default null, p_altura integer default null)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_part public.participantes%rowtype;
+  v_status text;
+  v_caminho text;
+  v_foto public.fotos%rowtype;
+  v_captura timestamptz := p_capturada_em;
+begin
+  select * into v_part from public.participantes where id = p_participante and user_id = auth.uid();
+  if not found then
+    raise exception 'participante_invalido';
+  end if;
+  if v_part.liberado_em is not null then
+    raise exception 'participante_liberado';
+  end if;
+  if v_part.removido then
+    raise exception 'participante_removido';
+  end if;
+  select status into v_status from public.operacoes where id = v_part.operacao_id;
+  if v_status <> 'ativa' then
+    raise exception 'operacao_encerrada';
+  end if;
+  if p_client_id is null then
+    raise exception 'foto_invalida';
+  end if;
+
+  select * into v_foto from public.fotos where participante_id = v_part.id and client_id = p_client_id;
+  if found then
+    return row_to_json(v_foto);   -- reenvio: já estava registrada
+  end if;
+
+  v_caminho := v_part.operacao_id || '/' || v_part.id || '/' || p_client_id || '.jpg';
+  if not exists (select 1 from storage.objects where bucket_id = 'fotos' and name = v_caminho) then
+    raise exception 'foto_nao_enviada';
+  end if;
+
+  if p_origem is null or p_origem not in ('gps', 'exif', 'nenhuma') then
+    raise exception 'foto_invalida';
+  end if;
+  if p_origem = 'nenhuma' and (p_lat is not null or p_lng is not null) then
+    raise exception 'posicao_invalida';
+  end if;
+  if p_origem <> 'nenhuma' and (p_lat is null or p_lng is null or p_lat not between -90 and 90
+       or p_lng not between -180 and 180 or (p_lat = 0 and p_lng = 0)) then
+    raise exception 'posicao_invalida';
+  end if;
+  if v_captura is not null and (v_captura > now() + interval '2 minutes' or v_captura < '2000-01-01') then
+    v_captura := null;
+  end if;
+
+  insert into public.fotos (operacao_id, participante_id, autor_nome, autor_tipo, client_id, caminho,
+                            lat, lng, precisao, posicao_em, origem_posicao, capturada_em, legenda,
+                            bytes, largura, altura)
+  values (v_part.operacao_id, v_part.id, v_part.nome, v_part.tipo, p_client_id, v_caminho,
+          p_lat, p_lng, case when p_precisao between 0 and 100000 then p_precisao end,
+          case when p_lat is not null then least(coalesce(p_posicao_em, now()), now()) end,
+          p_origem, v_captura, left(btrim(coalesce(p_legenda, '')), 300),
+          case when p_bytes between 0 and 20000000 then p_bytes end,
+          case when p_largura between 1 and 20000 then p_largura end,
+          case when p_altura between 1 and 20000 then p_altura end)
+  returning * into v_foto;
+
+  update public.participantes set ultimo_contato_em = now() where id = v_part.id;
+  return row_to_json(v_foto);
+end;
+$$;
+
+-- Toda foto excluída (por exclusão da operação, retenção vencida etc.) entra na
+-- fila de arquivos a apagar do Storage.
+create or replace function public.fila_apagar_arquivo()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into public.arquivos_pendentes (caminho, bucket, operacao_id, excluido_por)
+  values (old.caminho, 'fotos', old.operacao_id, auth.uid())
+  on conflict (caminho) do nothing;
+  return old;
+end;
+$$;
+drop trigger if exists fotos_apagar_arquivo on public.fotos;
+create trigger fotos_apagar_arquivo after delete on public.fotos
+  for each row execute function public.fila_apagar_arquivo();
+
+-- Arquivos que este responsável deve apagar do Storage (após excluir dados).
+create or replace function public.meus_arquivos_pendentes()
+returns json
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(json_agg(caminho), '[]'::json)
+    from (select caminho from public.arquivos_pendentes
+           where excluido_por = auth.uid() order by criado_em limit 1000) x;
+$$;
+
+-- Tira da fila os arquivos que de fato já não existem no Storage.
+create or replace function public.confirmar_arquivos_removidos(p_caminhos text[])
+returns integer
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_qtd integer;
+begin
+  delete from public.arquivos_pendentes a
+   where a.caminho = any (coalesce(p_caminhos, '{}'))
+     and a.excluido_por = auth.uid()
+     and not exists (select 1 from storage.objects o where o.bucket_id = a.bucket and o.name = a.caminho);
+  get diagnostics v_qtd = row_count;
+  return v_qtd;
+end;
+$$;
+
+-- Usadas só pela limpeza diária (chave secreta).
+create or replace function public.servidor_arquivos_pendentes(p_limite integer default 500)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v json;
+begin
+  -- primeiro, tira da fila o que já não existe
+  delete from public.arquivos_pendentes a
+   where not exists (select 1 from storage.objects o where o.bucket_id = a.bucket and o.name = a.caminho);
+  with x as (
+    update public.arquivos_pendentes set tentativas = tentativas + 1
+     where caminho in (select caminho from public.arquivos_pendentes order by criado_em limit greatest(1, least(p_limite, 1000)))
+    returning caminho, bucket
+  )
+  select coalesce(json_agg(json_build_object('caminho', caminho, 'bucket', bucket)), '[]'::json) into v from x;
+  return v;
+end;
+$$;
+
+create or replace function public.servidor_arquivos_conferir(p_erro text default null)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_removidos integer;
+  v_restantes integer;
+begin
+  delete from public.arquivos_pendentes a
+   where not exists (select 1 from storage.objects o where o.bucket_id = a.bucket and o.name = a.caminho);
+  get diagnostics v_removidos = row_count;
+  if p_erro is not null then
+    update public.arquivos_pendentes set ultimo_erro = left(p_erro, 300);
+  end if;
+  select count(*) into v_restantes from public.arquivos_pendentes;
+  return json_build_object('removidos_da_fila', v_removidos, 'restantes', v_restantes);
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 4g. EXCLUSÃO DEFINITIVA DE UMA OPERAÇÃO
+-- ---------------------------------------------------------------------
+-- Quem pode: quem criou a operação, ou um administrador que faça parte dela.
+-- Tudo acontece numa transação: participantes, posições, mensagens, relatos,
+-- fotos (registros), equipe e tokens dos links são apagados juntos. Os arquivos
+-- das fotos entram na fila arquivos_pendentes e são apagados do Storage pelo
+-- painel logo em seguida (ou pela limpeza diária, se algo falhar).
+create or replace function public.excluir_operacao(p_operacao uuid)
+returns json
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_codigo text;
+  v_fotos integer;
+  v_participantes integer;
+begin
+  if not (public.eh_criador(p_operacao) or (public.eh_admin() and public.dono_operacao(p_operacao))) then
+    raise exception 'sem_permissao';
+  end if;
+  select codigo into v_codigo from public.operacoes where id = p_operacao for update;
+  if v_codigo is null then
+    raise exception 'sem_permissao';
+  end if;
+  select count(*) into v_fotos from public.fotos where operacao_id = p_operacao;
+  select count(*) into v_participantes from public.participantes where operacao_id = p_operacao and tipo <> 'responsavel';
+
+  delete from public.operacoes where id = p_operacao;   -- apaga em cascata tudo o que é da operação
+
+  return json_build_object('operacao', v_codigo, 'fotos', v_fotos, 'participantes', v_participantes);
+end;
+$$;
+
+-- ---------------------------------------------------------------------
 -- 5. FUNÇÕES (RPC) — PARTICIPANTE (civil ou militar de campo)
 -- ---------------------------------------------------------------------
 
@@ -855,6 +1297,7 @@ begin
     'nome', v_part.nome,
     'tipo', v_part.tipo,
     'operacao', v_op.codigo,
+    'operacao_id', v_op.id,
     'saida_solicitada_em', v_part.saida_solicitada_em
   );
 end;
@@ -1000,6 +1443,7 @@ begin
    where m.id = any (p_ids)
      and m.participante_id = p.id
      and p.user_id = auth.uid()
+     and m.direcao = 'saida'
      and m.entregue_em is null;
   get diagnostics v_qtd = row_count;
   return v_qtd;
@@ -1022,6 +1466,7 @@ begin
    where m.id = p_mensagem
      and m.participante_id = p.id
      and p.user_id = auth.uid()
+     and m.direcao = 'saida'
   returning m.* into v_msg;
   if not found then
     raise exception 'sem_permissao';
@@ -1090,6 +1535,12 @@ $$;
 -- 7. PERMISSÕES DE EXECUÇÃO
 -- ---------------------------------------------------------------------
 revoke execute on function
+  public.participante_enviar_mensagem(uuid, text, text, double precision, double precision, real, timestamptz, uuid),
+  public.marcar_lidas(uuid[]), public.caminho_foto_partes(text), public.pode_enviar_foto(text), public.pode_ver_foto(text),
+  public.pode_apagar_foto(text),
+  public.registrar_foto(uuid, uuid, text, double precision, double precision, real, timestamptz, timestamptz, text, integer, integer, integer),
+  public.meus_arquivos_pendentes(), public.confirmar_arquivos_removidos(text[]), public.excluir_operacao(uuid),
+  public.servidor_arquivos_pendentes(integer), public.servidor_arquivos_conferir(text), public.fila_apagar_arquivo(),
   public.eh_admin(), public.admin_listar_responsaveis(), public.admin_alterar_responsavel(uuid, text, boolean, boolean),
   public.servidor_usuario_por_email(text), public.servidor_salvar_responsavel(uuid, text, boolean),
   public.servidor_eh_responsavel(uuid),
@@ -1104,6 +1555,11 @@ revoke execute on function
 from public, anon;
 
 grant execute on function
+  public.participante_enviar_mensagem(uuid, text, text, double precision, double precision, real, timestamptz, uuid),
+  public.marcar_lidas(uuid[]), public.caminho_foto_partes(text), public.pode_enviar_foto(text), public.pode_ver_foto(text),
+  public.pode_apagar_foto(text),
+  public.registrar_foto(uuid, uuid, text, double precision, double precision, real, timestamptz, timestamptz, text, integer, integer, integer),
+  public.meus_arquivos_pendentes(), public.confirmar_arquivos_removidos(text[]), public.excluir_operacao(uuid),
   public.eh_admin(), public.admin_listar_responsaveis(), public.admin_alterar_responsavel(uuid, text, boolean, boolean),
   public.eh_responsavel(), public.dono_operacao(uuid), public.eh_meu_participante(uuid),
   public.criar_operacao(text, integer), public.encerrar_operacao(uuid), public.apagar_dados_operacao(uuid),
@@ -1127,6 +1583,8 @@ revoke execute on function public.servidor_usuario_por_email(text), public.servi
   public.servidor_eh_responsavel(uuid) from authenticated;
 grant execute on function public.servidor_usuario_por_email(text), public.servidor_salvar_responsavel(uuid, text, boolean),
   public.servidor_eh_responsavel(uuid) to service_role;
+revoke execute on function public.servidor_arquivos_pendentes(integer), public.servidor_arquivos_conferir(text) from authenticated;
+grant execute on function public.servidor_arquivos_pendentes(integer), public.servidor_arquivos_conferir(text) to service_role;
 
 -- ---------------------------------------------------------------------
 -- 8. TEMPO REAL (Supabase Realtime — postgres_changes respeita o RLS)
@@ -1136,7 +1594,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['participantes', 'posicoes', 'mensagens'] loop
+    foreach t in array array['participantes', 'posicoes', 'mensagens', 'fotos'] loop
       begin
         execute format('alter publication supabase_realtime add table public.%I', t);
       exception when duplicate_object then
@@ -1146,6 +1604,30 @@ begin
   end if;
 end;
 $$;
+
+-- ---------------------------------------------------------------------
+-- 9. STORAGE: bucket PRIVADO "fotos" e suas regras de acesso
+--    (imagens só por links assinados e temporários; nunca públicas)
+-- ---------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('fotos', 'fotos', false, 10485760, array['image/jpeg'])
+on conflict (id) do update
+  set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists gbs_fotos_enviar on storage.objects;
+create policy gbs_fotos_enviar on storage.objects
+  for insert to authenticated
+  with check (bucket_id = 'fotos' and public.pode_enviar_foto(name));
+
+drop policy if exists gbs_fotos_ver on storage.objects;
+create policy gbs_fotos_ver on storage.objects
+  for select to authenticated
+  using (bucket_id = 'fotos' and public.pode_ver_foto(name));
+
+drop policy if exists gbs_fotos_apagar on storage.objects;
+create policy gbs_fotos_apagar on storage.objects
+  for delete to authenticated
+  using (bucket_id = 'fotos' and public.pode_apagar_foto(name));
 
 -- =====================================================================
 -- DEPOIS DE EXECUTAR ESTE ARQUIVO (somente na PRIMEIRA instalação):

@@ -43,6 +43,19 @@
   var CFG_GPS = { intervaloMinimoMs: 5000, intervaloMaximoMs: 30000, distanciaMinimaM: 5, precisaoMaximaM: 100, sinalVidaMs: 15000 };
 
   var CHAVE_AJUDA_VISTA = 'sar-militar-ajuda-vista';
+  var CHAVE_LATERAL = 'gbs-painel-lateral-oculta';
+  var CHAVE_PREFS_MAPA = 'gbs-painel-mapa';
+
+  // Relatos de campo enviados pelos participantes (mensagens com categoria).
+  var CATEGORIAS = {
+    MENSAGEM: { rotulo: 'Mensagem', letra: '✉' },
+    PISTA: { rotulo: 'Possível pista', letra: 'P' },
+    VESTIGIO: { rotulo: 'Vestígio', letra: 'V' },
+    OBJETO: { rotulo: 'Objeto encontrado', letra: 'O' },
+    OBSTACULO: { rotulo: 'Obstáculo', letra: '!' },
+    OUTRO: { rotulo: 'Outro', letra: '?' },
+  };
+  var ORIGEM_FOTO = { gps: 'GPS do aparelho no momento do registro', exif: 'gravada na própria foto (EXIF)', nenhuma: 'sem localização' };
 
   var est = {
     usuario: null,
@@ -92,6 +105,29 @@
     alertasTocados: new Set(),
     alertaAtual: null,
     cpfVisivel: new Set(),
+    // mensagens e relatos recebidos dos participantes
+    lidasLocal: new Set(),
+    marcandoLidas: new Set(),
+    destaqueNovas: new Set(),
+    filaNotif: [],
+    timerNotif: null,
+    relatosMarc: new Map(),     // id da mensagem → marcador
+    // fotos
+    fotos: new Map(),           // id → foto
+    fotosMarc: new Map(),       // id → marcador
+    fotosFila: [],              // fotos tiradas por este responsável aguardando envio
+    enviandoFotos: false,
+    // mapa e interface
+    camadasBase: null,
+    camadaAtual: 'osm',
+    camadaPontos: null,         // fotos e relatos (agrupados quando próximos)
+    legenda: null,
+    prefsMapa: Object.assign({ camada: 'osm', fotos: true, relatos: true, nomes: true, legenda: true }, C.local.ler(CHAVE_PREFS_MAPA, {}) || {}),
+    lateralOculta: Boolean(C.local.ler(CHAVE_LATERAL, false)),
+    centralAba: 'msgs',
+    centralFiltro: 'todas',
+    centralVoltar: false,
+    assinaturaConversa: '',
   };
 
   /* ------------------------------------------------------------------ */
@@ -151,6 +187,48 @@
     $('resp-cred-fechar').addEventListener('click', function () { $('resp-credenciais').hidden = true; $('resp-cred-texto').textContent = ''; });
     $('resp-cred-copiar').addEventListener('click', function () { copiarTexto($('resp-cred-texto').textContent); });
     $('btn-equipe').addEventListener('click', abrirEquipe);
+    // Menu de ferramentas
+    $('btn-ferramentas').addEventListener('click', function () { alternarMenu(); });
+    $('menu-fechar').addEventListener('click', function () { fecharMenu(true); });
+    $('menu-ferramentas').addEventListener('click', function (ev) {
+      // fecha ao escolher uma opção (as ações acima já foram executadas pelos próprios botões)
+      var item = ev.target.closest('.menu-item');
+      if (item && !item.disabled) fecharMenu(false);
+    });
+    document.addEventListener('pointerdown', function (ev) {
+      if (!$('menu-ferramentas').hidden && !$('ferramentas').contains(ev.target)) fecharMenu(false);
+    });
+    $('btn-registrar-foto').addEventListener('click', abrirRegistrarFoto);
+    $('menu-central').addEventListener('click', function () { abrirCentral('msgs'); });
+    $('btn-excluir-op').addEventListener('click', function () { excluirOperacao(est.op); });
+    document.querySelectorAll('[data-camada]').forEach(function (b) {
+      b.addEventListener('click', function () { trocarCamada(b.getAttribute('data-camada')); });
+    });
+    $('opt-fotos').addEventListener('click', function () { definirPrefMapa('fotos', !est.prefsMapa.fotos); });
+    $('opt-relatos').addEventListener('click', function () { definirPrefMapa('relatos', !est.prefsMapa.relatos); });
+    $('opt-nomes').addEventListener('click', function () { definirPrefMapa('nomes', !est.prefsMapa.nomes); });
+    $('opt-legenda').addEventListener('click', function () { definirPrefMapa('legenda', !est.prefsMapa.legenda); });
+    $('opt-trilhas').addEventListener('click', function () { definirTodasTrilhas(!todasTrilhasVisiveis()); });
+    $('menu-enquadrar').addEventListener('click', enquadrarTodos);
+    $('opt-lateral').addEventListener('click', function () { definirLateral(est.lateralOculta); });
+    // Lista lateral: ocultar / reabrir
+    $('btn-ocultar-lateral').addEventListener('click', function () { definirLateral(false); });
+    $('btn-mostrar-lateral').addEventListener('click', function () { definirLateral(true); });
+    $('painel-corpo').addEventListener('transitionend', function (ev) {
+      if (ev.target === $('painel-corpo') && est.mapa) est.mapa.invalidateSize({ pan: false });
+    });
+    // Central de comunicação
+    $('btn-mensagens').addEventListener('click', function () { if ($('central').hidden) abrirCentral(); else fecharCentral(); });
+    $('central-fechar').addEventListener('click', fecharCentral);
+    $('aba-msgs').addEventListener('click', function () { mostrarAbaCentral('msgs'); });
+    $('aba-fotos').addEventListener('click', function () { mostrarAbaCentral('fotos'); });
+    document.querySelectorAll('[data-filtro]').forEach(function (b) {
+      b.addEventListener('click', function () { est.centralFiltro = b.getAttribute('data-filtro'); renderizarCentral(); });
+    });
+    $('form-resposta').addEventListener('submit', enviarResposta);
+    $('resposta-texto').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); enviarResposta(ev); }
+    });
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible' && est.compartilhando) {
         pedirTelaLigada();
@@ -159,11 +237,20 @@
       }
     });
     document.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape' && !$('ficha').hidden && !document.querySelector('.modal-fundo')) fecharFicha();
+      if (ev.key !== 'Escape' || document.querySelector('.modal-fundo') || document.querySelector('.lightbox')) return;
+      if (!$('menu-ferramentas').hidden) fecharMenu(true);
+      else if (!$('ficha').hidden) fecharFicha();
+      else if (!$('central').hidden) fecharCentral();
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') marcarLidasVisiveis();
     });
     document.addEventListener('pointerdown', prepararAudio, { once: true });
     window.addEventListener('hashchange', rotear);
-    window.addEventListener('online', function () { if (est.op) sincronizar(); });
+    window.addEventListener('online', function () { if (est.op) { sincronizar(); enviarFilaFotos(); } });
+    window.addEventListener('beforeunload', function (ev) {
+      if (est.fotosFila.length) { ev.preventDefault(); ev.returnValue = ''; }
+    });
 
     if (!C.configurado) {
       mostrarTela('login');
@@ -293,6 +380,9 @@
       if (op.status !== 'ativa' && !op.dados_apagados_em) {
         acoes.appendChild(UI.el('button', { classe: 'btn btn-perigo', type: 'button', texto: 'Apagar dados agora', onclick: function () { apagarDados(op); } }));
       }
+      if (podeExcluir(op)) {
+        acoes.appendChild(UI.el('button', { classe: 'btn btn-perigo', type: 'button', texto: 'Excluir operação', 'data-excluir': op.id, onclick: function () { excluirOperacao(op); } }));
+      }
       var deEquipe = est.usuario && op.responsavel_id !== est.usuario.id
         ? UI.el('span', { classe: 'selo selo-responsavel', title: 'Você foi adicionado como responsável', texto: 'Equipe' }) : null;
       ul.appendChild(UI.el('li', null, [
@@ -342,7 +432,8 @@
     if (!r) return;
     try {
       var atual = await C.rpc('apagar_dados_operacao', { p_operacao: op.id });
-      UI.aviso('Dados da operação apagados.', 'ok');
+      var arq = await limparArquivosPendentes();
+      UI.aviso('Dados da operação apagados.' + (arq.falhas ? ' ' + textoFalhaArquivos(arq.falhas) : ''), arq.falhas ? 'erro' : 'ok', arq.falhas ? 12000 : 4000);
       if (est.op && est.op.id === op.id) {
         est.op = Object.assign(est.op, atual);
         limparDadosDoMapa();
@@ -353,6 +444,111 @@
     } catch (e) {
       UI.aviso(e.message, 'erro');
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Exclusão definitiva de uma operação                                  */
+  /* ------------------------------------------------------------------ */
+  // Mostrado só a quem pode excluir: quem criou a operação ou um administrador.
+  // A regra que vale é a do banco (função excluir_operacao); isto só esconde o botão.
+  function podeExcluir(op) {
+    return Boolean(op && est.usuario && est.responsavel && (op.responsavel_id === est.usuario.id || est.responsavel.admin));
+  }
+
+  function textoFalhaArquivos(n) {
+    return n + ' arquivo(s) de foto não puderam ser apagados agora. Eles ficaram registrados e serão apagados automaticamente pela limpeza diária.';
+  }
+
+  // Apaga do Storage os arquivos de fotos cujos registros este responsável acabou
+  // de excluir. O que falhar continua na fila (arquivos_pendentes) e é apagado
+  // depois pela limpeza diária (/api/limpeza), sem ficar esquecido.
+  async function limparArquivosPendentes() {
+    var caminhos;
+    try {
+      caminhos = await C.rpc('meus_arquivos_pendentes');
+    } catch (e) {
+      return { apagados: 0, falhas: 0, erro: e.message };
+    }
+    caminhos = caminhos || [];
+    var apagados = 0;
+    for (var i = 0; i < caminhos.length; i += 100) {
+      var lote = caminhos.slice(i, i + 100);
+      try {
+        var r = await C.cliente.storage.from('fotos').remove(lote);
+        if (r.error) continue;
+        var conf = await C.rpc('confirmar_arquivos_removidos', { p_caminhos: lote });
+        apagados += Number(conf) || 0;
+      } catch (e) { /* fica na fila para a limpeza diária */ }
+    }
+    return { apagados: apagados, falhas: caminhos.length - apagados };
+  }
+
+  function excluirOperacao(op) {
+    if (!op || !podeExcluir(op)) return;
+    var nFotos = est.op && est.op.id === op.id ? est.fotos.size : null;
+    var entrada = UI.el('input', { classe: 'campo', id: 'excluir-codigo', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'excluir-ajuda' });
+    var erro = UI.el('p', { classe: 'erro-form', role: 'alert', hidden: true });
+    var btnOk = UI.el('button', { classe: 'btn btn-primario', type: 'submit', id: 'excluir-confirmar', texto: 'Excluir definitivamente', disabled: true });
+    var btnCancelar = UI.el('button', { classe: 'btn', type: 'button', texto: 'Cancelar', onclick: function () { fechar(); } });
+    function confere() { return entrada.value.trim().toUpperCase() === String(op.codigo).trim().toUpperCase(); }
+    entrada.addEventListener('input', function () { btnOk.disabled = !confere(); erro.hidden = true; });
+
+    var form = UI.el('form', { classe: 'form-excluir', novalidate: true }, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'Excluir a operação "' + op.codigo + '"?' }),
+      UI.el('p', { classe: 'nota nota-perigo', texto: 'A exclusão é DEFINITIVA e não pode ser desfeita. Serão apagados a operação e todos os dados vinculados a ela:' }),
+      UI.el('ul', { classe: 'lista-exclusao' }, [
+        UI.el('li', { texto: 'participantes civis e militares cadastrados na operação;' }),
+        UI.el('li', { texto: 'todo o histórico de localizações e as trilhas GPS;' }),
+        UI.el('li', { texto: 'mensagens trocadas e relatos de campo (objetos, vestígios, pistas, obstáculos);' }),
+        UI.el('li', { texto: 'fotografias registradas no mapa' + (nFotos ? ' (' + nFotos + ')' : '') + ' e os arquivos armazenados;' }),
+        UI.el('li', { texto: 'equipe de responsáveis da operação e os links/QR Codes de convite, que deixam de funcionar na hora.' }),
+      ]),
+      UI.el('p', { classe: 'ajuda', texto: 'Quem ainda estiver com o link aberto deixa de enviar localização, mensagens e fotos. Outras operações não são afetadas.' }),
+      UI.el('div', { classe: 'grupo' }, [
+        UI.el('label', { classe: 'rotulo', for: 'excluir-codigo', texto: 'Para confirmar, digite o nome da operação' }),
+        UI.el('p', { classe: 'ajuda mono', id: 'excluir-ajuda', texto: op.codigo }),
+        entrada,
+      ]),
+      erro,
+      UI.el('div', { classe: 'modal-acoes' }, [btnCancelar, btnOk]),
+    ]);
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      if (!confere()) {
+        erro.textContent = 'O nome digitado não confere com o da operação.';
+        erro.hidden = false;
+        return;
+      }
+      btnOk.disabled = true;
+      btnCancelar.disabled = true;
+      btnOk.textContent = 'EXCLUINDO…';
+      var r;
+      try {
+        r = await C.rpc('excluir_operacao', { p_operacao: op.id }, 30000);
+      } catch (e) {
+        erro.textContent = 'Não foi possível excluir: ' + e.message + (e.rede ? ' Nada foi apagado; tente de novo quando a conexão voltar.' : '');
+        erro.hidden = false;
+        btnOk.disabled = false;
+        btnCancelar.disabled = false;
+        btnOk.textContent = 'Excluir definitivamente';
+        return;
+      }
+      btnOk.textContent = 'APAGANDO FOTOS…';
+      var arq = await limparArquivosPendentes();
+      fechar(true);
+      var resumo = 'Operação "' + (r && r.operacao || op.codigo) + '" excluída' +
+        (r ? ' (' + r.participantes + ' participante(s), ' + r.fotos + ' foto(s))' : '') + '.';
+      if (arq.falhas) UI.aviso(resumo + ' ' + textoFalhaArquivos(arq.falhas), 'erro', 15000);
+      else UI.aviso(resumo + ' Todos os dados foram apagados.', 'ok', 8000);
+      if (est.op && est.op.id === op.id) {
+        fecharPainel();
+        if (location.hash) location.hash = '';
+        else mostrarOperacoes();
+      } else {
+        mostrarOperacoes();
+      }
+    });
+    var fechar = UI.abrirModal(form, { fecharNoFundo: false });
   }
 
   /* ------------------------------------------------------------------ */
@@ -375,6 +571,7 @@
       return;
     }
     est.op = op;
+    aplicarLateral(false);
     renderizarCabecalho();
     criarMapa();
     await carregarTudo();
@@ -389,6 +586,7 @@
         else enviarMeuSinal();
         lerPosicaoSeParado();
         enviarMinhaFila();
+        enviarFilaFotos();
       }, CFG_GPS.sinalVidaMs);
     }
     atualizarBotaoMinhaPos();
@@ -408,6 +606,22 @@
     est.entregando = new Set();
     est.alertaAtual = null;
     if ($('alerta-cmd')) $('alerta-cmd').hidden = true;
+    fecharMenu(false);
+    fecharCentral();
+    fecharLightbox();
+    est.centralVoltar = false;
+    clearTimeout(est.timerNotif);
+    est.filaNotif = [];
+    est.lidasLocal = new Set();
+    est.marcandoLidas = new Set();
+    est.destaqueNovas = new Set();
+    est.relatosMarc = new Map();
+    est.fotos = new Map();
+    est.fotosMarc = new Map();
+    est.camadaPontos = est.legenda = est.camadasBase = null;
+    est.assinaturaConversa = '';
+    if (est.fotosFila.length) UI.aviso(est.fotosFila.length + ' foto(s) sua(s) não chegaram a ser enviadas e foram descartadas ao sair do painel.', 'erro', 10000);
+    est.fotosFila = [];
     clearInterval(est.timerStatus);
     clearInterval(est.timerPoll);
     clearTimeout(est.timerReassinar);
@@ -437,6 +651,9 @@
     est.ultimoSyncOk = 0;
     est.syncFalhou = false;
     $('lista-part').innerHTML = '';
+    $('feed-msgs').innerHTML = '';
+    $('galeria').innerHTML = '';
+    atualizarContadorMsgs();
   }
 
   function limparDadosDoMapa() {
@@ -445,12 +662,18 @@
       if (p.trilha) p.trilha.remove();
     });
     if (est.circuloPrecisao) { est.circuloPrecisao.remove(); est.circuloPrecisao = null; }
+    if (est.camadaPontos) est.camadaPontos.clearLayers();
     est.participantes = new Map();
     est.posIds = new Set();
     est.mensagens = new Map();
+    est.fotos = new Map();
+    est.fotosMarc = new Map();
+    est.relatosMarc = new Map();
     fecharFicha();
     $('lista-part').innerHTML = '';
     renderizarLista();
+    renderizarCentral();
+    atualizarContadorMsgs();
   }
 
   function renderizarCabecalho() {
@@ -460,6 +683,8 @@
     $('btn-encerrar').hidden = op.status !== 'ativa';
     $('btn-convite').hidden = op.status !== 'ativa';
     $('btn-minha-pos').hidden = op.status !== 'ativa';
+    $('btn-registrar-foto').hidden = op.status !== 'ativa';
+    $('btn-excluir-op').hidden = !podeExcluir(op);
     if (op.status !== 'ativa' && est.compartilhando) pararMinhaPosicao(true);
     var faixa = $('faixa-encerrada');
     faixa.hidden = op.status === 'ativa';
@@ -468,7 +693,13 @@
         (op.dados_apagados_em ? 'Os dados foram apagados.' : 'Os dados serão apagados automaticamente em ' + C.hora(op.expira_em, false) + '.');
       $('btn-apagar-faixa').hidden = Boolean(op.dados_apagados_em);
     }
-    document.title = op.codigo + ' — Painel GBS';
+    atualizarTitulo();
+  }
+
+  function atualizarTitulo() {
+    if (!est.op) return;
+    var n = naoLidas().length;
+    document.title = (n ? '(' + n + ') ' : '') + est.op.codigo + ' — Painel GBS';
   }
 
   /* ------------------------------------------------------------------ */
@@ -489,11 +720,13 @@
       maxZoom: 19,
       attribution: 'Imagens &copy; Esri, Maxar, Earthstar Geographics',
     });
-    osm.addTo(mapa);
-    L.control.layers({ 'Mapa (OpenStreetMap)': osm, 'Relevo (OpenTopoMap)': topo, 'Satélite (Esri)': satelite }, null, { position: 'topright' }).addTo(mapa);
+    // As camadas de fundo são escolhidas no menu "Ferramentas" (Camadas do mapa).
+    est.camadasBase = { osm: osm, topo: topo, satelite: satelite };
+    est.camadaAtual = est.camadasBase[est.prefsMapa.camada] ? est.prefsMapa.camada : 'osm';
+    est.camadasBase[est.camadaAtual].addTo(mapa);
     L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(mapa);
 
-    // Botões: enquadrar todos e mostrar/ocultar rótulos
+    // Controle essencial de orientação que fica sempre no mapa: enquadrar todos.
     var Botoes = L.Control.extend({
       options: { position: 'topleft' },
       onAdd: function () {
@@ -504,19 +737,8 @@
         b1.setAttribute('role', 'button');
         b1.setAttribute('aria-label', b1.title);
         b1.textContent = '⤢';
-        var b2 = L.DomUtil.create('a', 'btn-mapa', div);
-        b2.href = '#';
-        b2.title = 'Mostrar/ocultar nomes no mapa';
-        b2.setAttribute('role', 'button');
-        b2.setAttribute('aria-label', b2.title);
-        b2.textContent = 'Aa';
         L.DomEvent.disableClickPropagation(div);
         L.DomEvent.on(b1, 'click', function (e) { L.DomEvent.preventDefault(e); enquadrarTodos(); });
-        L.DomEvent.on(b2, 'click', function (e) {
-          L.DomEvent.preventDefault(e);
-          est.rotulosVisiveis = !est.rotulosVisiveis;
-          $('mapa').classList.toggle('esconder-rotulos', !est.rotulosVisiveis);
-        });
         return div;
       },
     });
@@ -533,15 +755,174 @@
           '<div><span class="simbolo simbolo-civil"><span>C</span></span> Civil (verde) — trilha tracejada</div>' +
           '<div><span class="simbolo simbolo-responsavel"><span>R</span></span> Responsável (ciano) — trilha pontilhada</div>' +
           '<div><span class="antigo"><span class="simbolo simbolo-civil" style="background:#6b7280">C</span></span> Última posição antiga (+2 min)</div>' +
+          '<div><span class="mk-foto mk-foto-legenda"><span class="ico-camera"></span></span> Foto registrada no local</div>' +
+          '<div><span class="mk-relato mk-relato-legenda"><span>P</span></span> Relato do participante</div>' +
           '</details>';
         L.DomEvent.disableClickPropagation(div);
         return div;
       },
     });
-    new Legenda().addTo(mapa);
+    est.legenda = new Legenda();
+    if (est.prefsMapa.legenda) est.legenda.addTo(mapa);
+
+    // Fotos e relatos: agrupados quando estão próximos (o número indica quantos),
+    // para não poluir o mapa. Ao aproximar, cada um aparece no seu local; vários
+    // no mesmo ponto se abrem em leque ao tocar no grupo.
+    // Camada própria, abaixo dos participantes: quem está em campo fica sempre visível por cima.
+    var painelPontos = mapa.createPane('pontos');
+    painelPontos.style.zIndex = 550;
+    est.camadaPontos = criarGrupo().addTo(mapa);
+    // Grupo aberto em leque: as fotos e relatos sobem para ficar fáceis de tocar.
+    est.camadaPontos.on('spiderfied', function () { painelPontos.style.zIndex = 650; });
+    est.camadaPontos.on('unspiderfied', function () { painelPontos.style.zIndex = 550; });
 
     est.mapa = mapa;
+    $('mapa').classList.toggle('esconder-rotulos', !est.prefsMapa.nomes);
+    atualizarMenu();
     setTimeout(function () { mapa.invalidateSize(); }, 50);
+  }
+
+  function criarGrupo() {
+    if (!L.markerClusterGroup) return L.featureGroup();   // biblioteca indisponível: sem agrupamento
+    return L.markerClusterGroup({
+      clusterPane: 'pontos',
+      showCoverageOnHover: false,
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true,
+      zoomToBoundsOnClick: true,
+      iconCreateFunction: function (grupo) {
+        var nf = 0, nr = 0;
+        grupo.getAllChildMarkers().forEach(function (m) { if (m.options.tipoPonto === 'foto') nf++; else nr++; });
+        var tipo = nf && nr ? 'misto' : nf ? 'fotos' : 'relatos';
+        var miolo = tipo === 'relatos' ? '<span class="cl-letra">!</span>' : '<span class="ico-camera"></span>';
+        return L.divIcon({
+          className: 'cluster-wrap',
+          html: '<div class="cluster cluster-' + tipo + '" title="' + nf + ' foto(s), ' + nr + ' relato(s)">' + miolo + '<b>' + (nf + nr) + '</b></div>',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+        });
+      },
+    });
+  }
+
+  function marcadoresDe(tipo) {
+    return Array.from((tipo === 'fotos' ? est.fotosMarc : est.relatosMarc).values());
+  }
+
+  function trocarCamada(nome) {
+    if (!est.mapa || !est.camadasBase || !est.camadasBase[nome]) return;
+    if (nome !== est.camadaAtual) {
+      est.mapa.removeLayer(est.camadasBase[est.camadaAtual]);
+      est.camadasBase[nome].addTo(est.mapa);
+      est.camadaAtual = nome;
+    }
+    definirPrefMapa('camada', nome);
+  }
+
+  function definirPrefMapa(chave, valor) {
+    est.prefsMapa[chave] = valor;
+    C.local.gravar(CHAVE_PREFS_MAPA, est.prefsMapa);
+    if (est.mapa) {
+      if ((chave === 'fotos' || chave === 'relatos') && est.camadaPontos) {
+        var lista = marcadoresDe(chave);
+        if (est.camadaPontos.addLayers) {
+          if (valor) est.camadaPontos.addLayers(lista); else est.camadaPontos.removeLayers(lista);
+        } else {
+          lista.forEach(function (mk) { if (valor) est.camadaPontos.addLayer(mk); else est.camadaPontos.removeLayer(mk); });
+        }
+      }
+      if (chave === 'legenda' && est.legenda) { if (valor) est.legenda.addTo(est.mapa); else est.legenda.remove(); }
+      if (chave === 'nomes') $('mapa').classList.toggle('esconder-rotulos', !valor);
+    }
+    atualizarMenu();
+  }
+
+  /* ---------- Menu de ferramentas ---------------------------------- */
+  function alternarMenu() {
+    if ($('menu-ferramentas').hidden) abrirMenu(); else fecharMenu(true);
+  }
+
+  function abrirMenu() {
+    atualizarMenu();
+    $('menu-ferramentas').hidden = false;
+    $('btn-ferramentas').setAttribute('aria-expanded', 'true');
+    document.body.classList.add('menu-aberto');
+    var primeiro = $('menu-ferramentas').querySelector('.menu-item:not([hidden]):not([disabled])');
+    if (primeiro) setTimeout(function () { primeiro.focus(); }, 20);
+  }
+
+  function fecharMenu(devolverFoco) {
+    var menu = $('menu-ferramentas');
+    if (!menu || menu.hidden) return;
+    menu.hidden = true;
+    $('btn-ferramentas').setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('menu-aberto');
+    if (devolverFoco) $('btn-ferramentas').focus();
+  }
+
+  function todasTrilhasVisiveis() {
+    var todas = true;
+    est.participantes.forEach(function (p) { if (!p.trilhaVisivel) todas = false; });
+    return todas;
+  }
+
+  // Mantém os estados (marcado/desmarcado) dos itens do menu iguais ao que está no mapa.
+  function atualizarMenu() {
+    document.querySelectorAll('[data-camada]').forEach(function (b) {
+      b.setAttribute('aria-checked', String(b.getAttribute('data-camada') === est.camadaAtual));
+    });
+    $('opt-fotos').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.fotos)));
+    $('opt-relatos').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.relatos)));
+    $('opt-nomes').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.nomes)));
+    $('opt-legenda').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.legenda)));
+    $('opt-trilhas').setAttribute('aria-pressed', String(todasTrilhasVisiveis()));
+    $('opt-lateral').setAttribute('aria-pressed', String(!est.lateralOculta));
+  }
+
+  /* ---------- Lista lateral: ocultar e reabrir ----------------------- */
+  function definirLateral(visivel) {
+    est.lateralOculta = !visivel;
+    C.local.gravar(CHAVE_LATERAL, est.lateralOculta);
+    aplicarLateral(true);
+    if (visivel) {
+      var b = $('btn-ocultar-lateral');
+      if (b) setTimeout(function () { b.focus(); }, 30);
+    } else {
+      setTimeout(function () { $('btn-mostrar-lateral').focus(); }, 30);
+    }
+  }
+
+  // Ocultar a lista muda só a interface: dados, rastreamento e tempo real seguem iguais.
+  function aplicarLateral(animar) {
+    var oculta = est.lateralOculta;
+    document.body.classList.toggle('lateral-oculta', oculta);
+    $('lateral').setAttribute('aria-hidden', String(oculta));
+    if (oculta) $('lateral').setAttribute('inert', ''); else $('lateral').removeAttribute('inert');
+    $('btn-mostrar-lateral').hidden = !oculta;
+    atualizarBotaoReabrir();
+    atualizarMenu();
+    if (!est.mapa) return;
+    // Acompanha a transição para o mapa ocupar o espaço sem "pular".
+    var mapa = est.mapa;
+    var fim = Date.now() + (animar ? 400 : 0);
+    (function passo() {
+      if (est.mapa !== mapa) return;
+      mapa.invalidateSize({ pan: false });
+      if (Date.now() < fim) requestAnimationFrame(passo);
+    })();
+  }
+
+  function atualizarBotaoReabrir() {
+    var b = $('btn-mostrar-lateral');
+    if (!b || b.hidden) return;
+    var n = 0, alerta = false;
+    est.participantes.forEach(function (p) {
+      if (!p.dados.removido) n++;
+      if (temAjuda(p) || saidaPendente(p) || naoLidasDe(p.id).length) alerta = true;
+    });
+    $('reabrir-qtd').textContent = String(n);
+    $('reabrir-alerta').hidden = !alerta;
+    b.title = 'Mostrar a lista de participantes' + (alerta ? ' (há alertas)' : '');
   }
 
   function enquadrarTodos() {
@@ -593,6 +974,9 @@
       if (!est.op || est.op.id !== opId) return;
       msgs.forEach(function (m) { receberMensagem(m, true); });
 
+      await carregarFotos(true);
+      if (!est.op || est.op.id !== opId) return;
+
       est.ultimoSyncOk = Date.now();
       est.syncFalhou = false;
     } catch (e) {
@@ -600,6 +984,8 @@
       UI.aviso('Falha ao carregar dados: ' + e.message, 'erro');
     }
     renderizarLista();
+    renderizarCentral();
+    atualizarContadorMsgs();
     atualizarPilula();
     if (!est.jaEnquadrou && temAlgumaPosicao()) {
       est.jaEnquadrou = true;
@@ -617,7 +1003,7 @@
       var op = await C.consultar(C.cliente.from('operacoes').select('*').eq('id', opId).maybeSingle());
       if (!est.op || est.op.id !== opId) return;
       if (!op) {
-        UI.aviso('Você não tem mais acesso a esta operação.', 'erro', 8000);
+        UI.aviso('Esta operação foi excluída ou você não tem mais acesso a ela.', 'erro', 8000);
         location.hash = '';
         return;
       }
@@ -647,6 +1033,9 @@
       );
       if (!est.op || est.op.id !== opId) return;
       msgs.forEach(function (m) { receberMensagem(m, false); });
+
+      await carregarFotos(false);
+      if (!est.op || est.op.id !== opId) return;
 
       est.ultimoSyncOk = Date.now();
       est.syncFalhou = false;
@@ -692,6 +1081,9 @@
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens', filter: filtro }, function (ev) {
         if (ev.new && ev.new.id) receberMensagem(ev.new, false);
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'fotos', filter: filtro }, function (ev) {
+        if (ev.new && ev.new.id) adicionarFoto(ev.new, false);
       })
       .subscribe(function (status) {
         if (geracao !== est.geracaoCanal) return;
@@ -844,7 +1236,7 @@
   function temAjuda(p) {
     var ultima = null;
     est.mensagens.forEach(function (m) {
-      if (m.participante_id === p.id && m.resposta && m.confirmada_em) {
+      if (m.participante_id === p.id && m.direcao !== 'entrada' && m.resposta && m.confirmada_em) {
         if (!ultima || C.paraMs(m.confirmada_em) > C.paraMs(ultima.confirmada_em)) ultima = m;
       }
     });
@@ -853,7 +1245,7 @@
 
   function mensagensPendentes(p) {
     var n = 0;
-    est.mensagens.forEach(function (m) { if (m.participante_id === p.id && !m.confirmada_em) n++; });
+    est.mensagens.forEach(function (m) { if (m.participante_id === p.id && m.direcao !== 'entrada' && !m.confirmada_em) n++; });
     return n;
   }
 
@@ -898,6 +1290,7 @@
     if (posicaoAntiga(p) || estadoDe(p).cod !== 'conectado') c.push('antigo');
     if (temAjuda(p)) c.push('ajuda');
     if (saidaPendente(p)) c.push('saida');
+    if (naoLidasDe(p.id).length) c.push('msg-nova');
     if (est.selecionado === p.id) c.push('selecionado');
     if (ehEu(p)) c.push('eu');
     return c.join(' ');
@@ -1070,6 +1463,7 @@
     est.listaSuja = true;
     renderizarLista();
     if (est.selecionado) atualizarFicha();
+    atualizarMenu();
     UI.aviso(visivel ? 'Todas as trilhas visíveis.' : 'Trilhas ocultas (o rastreamento continua).');
   }
 
@@ -1113,6 +1507,7 @@
     var e = estadoDe(p);
     var ajuda = temAjuda(p);
     var pend = mensagensPendentes(p);
+    var novas = naoLidasDe(p.id).length;
     var pos = posicaoAtual(p);
     var partes = p.liPartes;
 
@@ -1122,7 +1517,8 @@
     var htmlNome = '<span class="nome-txt">' + C.esc(nomeExibido(p)) + '</span>' + htmlSeloTipo(d) +
       (ajuda ? '<span class="selo selo-perigo">Pediu ajuda</span>' : '') +
       (saidaPendente(p) ? '<span class="selo selo-alerta">Pediu para sair</span>' : '') +
-      (pend ? '<span class="selo selo-alerta" title="Mensagens aguardando confirmação">✉ ' + pend + '</span>' : '');
+      (pend ? '<span class="selo selo-alerta" title="Mensagens aguardando confirmação">✉ ' + pend + '</span>' : '') +
+      (novas ? '<span class="selo selo-responsavel selo-msg-nova" title="Mensagens novas deste participante">' + (novas === 1 ? 'Mensagem nova' : novas + ' mensagens novas') + '</span>' : '');
     if (partes.nome.innerHTML !== htmlNome) partes.nome.innerHTML = htmlNome;
 
     var gpsRuim = d.rastreando && ['sem_sinal', 'negado', 'indisponivel'].indexOf(d.gps_estado) !== -1;
@@ -1142,7 +1538,8 @@
   }
 
   function ordemLista(a, b) {
-    var aa = temAjuda(a) ? 0 : saidaPendente(a) ? 1 : 2, bb = temAjuda(b) ? 0 : saidaPendente(b) ? 1 : 2;
+    var aa = temAjuda(a) ? 0 : saidaPendente(a) ? 1 : naoLidasDe(a.id).length ? 2 : 3;
+    var bb = temAjuda(b) ? 0 : saidaPendente(b) ? 1 : naoLidasDe(b.id).length ? 2 : 3;
     if (aa !== bb) return aa - bb;
     var ra = tipoDe(a.dados) === 'responsavel' ? 0 : 1, rb = tipoDe(b.dados) === 'responsavel' ? 0 : 1;
     if (ra !== rb) return ra - rb;
@@ -1178,6 +1575,7 @@
       '<span><span class="ponto ponto-sem_atualizacao"></span> <b>' + cont.sem_atualizacao + '</b> sem atualização</span>' +
       (cont.parado ? '<span><span class="ponto ponto-parado"></span> <b>' + cont.parado + '</b> interrompidos</span>' : '') +
       '<span class="muted">' + cont.militar + ' militar(es) · ' + cont.civil + ' civil(is) · ' + cont.responsavel + ' responsável(is)</span>';
+    atualizarBotaoReabrir();
   }
 
   // Executado a cada 5 s: atualiza "há X s", estados e cores de conexão.
@@ -1206,10 +1604,22 @@
       }).addTo(est.mapa);
     }
     montarComandos(p);
+    // Em telas pequenas a ficha e a central ocupam o mesmo espaço: guarda a central para voltar depois.
+    if (!$('central').hidden && telaPequena()) {
+      est.centralVoltar = true;
+      $('central').hidden = true;
+    }
+    if ($('ficha').hidden || anterior !== p) $('resposta-texto').value = '';
+    est.assinaturaConversa = '';
     $('ficha').hidden = false;
     $('ficha').querySelector('.ficha-corpo').scrollTop = 0;
     atualizarFicha();
     renderizarLista();
+    marcarLidasVisiveis();
+  }
+
+  function telaPequena() {
+    return Boolean(window.matchMedia && window.matchMedia('(max-width: 860px)').matches);
   }
 
   function fecharFicha() {
@@ -1219,6 +1629,10 @@
     if (p) atualizarAparenciaMarcador(p);
     if (est.circuloPrecisao) { est.circuloPrecisao.remove(); est.circuloPrecisao = null; }
     if (est.participantes.size) renderizarLista();
+    if (est.centralVoltar) {
+      est.centralVoltar = false;
+      if (est.op) abrirCentral();
+    }
   }
 
   function montarComandos(p) {
@@ -1337,24 +1751,14 @@
       : !podeEnviar ? 'Não é possível enviar mensagens: ' + (d.removido ? 'participante removido.' : 'operação encerrada.')
       : ehResp ? 'Este responsável está com o painel fechado ou sem conexão. A mensagem será entregue quando ele abrir o painel da operação.'
       : 'Atenção: o participante está sem conexão. A mensagem ficará aguardando e só será entregue quando o celular dele reconectar.';
-    $('ficha-msgs-titulo').textContent = eu ? 'Mensagens recebidas' : 'Mensagens enviadas';
+    $('ficha-msgs-titulo').textContent = eu ? 'Mensagens recebidas' : 'Conversa';
+    renderizarConversa(p);
+    var formResp = $('form-resposta');
+    formResp.hidden = eu || !podeEnviar;
+    $('resposta-texto').placeholder = 'Mensagem para ' + d.nome + '…';
 
-    // Mensagens
-    var msgs = [];
-    est.mensagens.forEach(function (m) { if (m.participante_id === p.id) msgs.push(m); });
-    msgs.sort(function (a, b) { return C.paraMs(b.criada_em) - C.paraMs(a.criada_em); });
-    var ul = $('ficha-msgs');
-    ul.innerHTML = msgs.length ? '' : '<li class="muted">Nenhuma mensagem.</li>';
-    msgs.forEach(function (m) {
-      var t = C.TIPOS_MENSAGEM[m.tipo] || C.TIPOS_MENSAGEM.PERSONALIZADA;
-      var st = estadoMensagem(m, p);
-      ul.appendChild(UI.el('li', null, [
-        UI.el('div', { classe: 'msg-topo' }, [UI.el('span', { texto: t.rotulo }), UI.el('span', { classe: 'muted num', texto: C.hora(m.criada_em) })]),
-        UI.el('div', { classe: 'msg-texto', texto: m.texto || t.padrao }),
-        UI.el('div', { classe: 'msg-estado' }, [UI.el('span', { classe: 'selo ' + st.cls, texto: st.txt })]),
-        UI.el('div', { classe: 'muted', style: 'font-size:.78rem', texto: 'Por ' + (m.remetente_nome || '—') }),
-      ]));
-    });
+    // Fotos registradas por este participante
+    renderizarFotosFicha(p);
 
     // Histórico de posições (últimos 50)
     $('ficha-qtd-pontos').textContent = String(p.pontos.length);
@@ -1410,9 +1814,18 @@
       UI.aviso('PEDIDO DE AJUDA: ' + (p ? p.dados.nome : 'participante'), 'erro', 15000);
       alarme();
     }
-    if (!silencioso && est.meuPart && m.participante_id === est.meuPart && !antiga && !m.confirmada_em) {
+    if (!silencioso && est.meuPart && m.participante_id === est.meuPart && m.direcao !== 'entrada' && !antiga && !m.confirmada_em) {
       alarme();
       try { if (navigator.vibrate) navigator.vibrate([400, 150, 400]); } catch (e) { /* ignora */ }
+    }
+    if (m.direcao === 'entrada') {
+      // Mensagem ou relato do participante para os responsáveis.
+      if (antiga && antiga.lida_em == null && m.lida_em != null) est.lidasLocal.delete(m.id);
+      if (!antiga && !silencioso && !m.lida_em) notificarEntrada(m);
+      atualizarRelato(m);
+      agendarCentral();
+      atualizarContadorMsgs();
+      if (!antiga && est.selecionado === m.participante_id && !$('ficha').hidden) marcarLidasVisiveis();
     }
     if (p) {
       atualizarAparenciaMarcador(p);
@@ -1540,8 +1953,13 @@
       var atual = await C.rpc('encerrar_operacao', { p_operacao: op.id });
       est.op = Object.assign(est.op, atual);
       renderizarCabecalho();
-      if (est.op.dados_apagados_em) limparDadosDoMapa();
-      else atualizarEstados();
+      if (est.op.dados_apagados_em) {
+        limparDadosDoMapa();
+        var arq = await limparArquivosPendentes();
+        if (arq.falhas) UI.aviso(textoFalhaArquivos(arq.falhas), 'erro', 12000);
+      } else {
+        atualizarEstados();
+      }
       UI.aviso('Operação encerrada.', 'ok');
     } catch (e) {
       UI.aviso(e.message, 'erro');
@@ -1628,6 +2046,767 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Mensagens e relatos recebidos dos participantes                      */
+  /* ------------------------------------------------------------------ */
+  function jaLida(m) {
+    return Boolean(m.lida_em) || est.lidasLocal.has(m.id);
+  }
+
+  function naoLidas() {
+    var lista = [];
+    est.mensagens.forEach(function (m) { if (m.direcao === 'entrada' && !jaLida(m)) lista.push(m); });
+    return lista;
+  }
+
+  function naoLidasDe(pid) {
+    return naoLidas().filter(function (m) { return m.participante_id === pid; });
+  }
+
+  function nomeDoParticipante(pid, reserva) {
+    var p = est.participantes.get(pid);
+    return p ? nomeExibido(p) : (reserva || 'Participante');
+  }
+
+  function resumir(t, n) {
+    t = String(t || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1) + '…' : t;
+  }
+
+  function atualizarContadorMsgs() {
+    var n = est.op ? naoLidas().length : 0;
+    var c = $('contador-msgs');
+    if (c) {
+      c.textContent = n > 99 ? '99+' : String(n);
+      c.hidden = !n;
+    }
+    var b = $('btn-mensagens');
+    if (b) {
+      b.classList.toggle('tem-novas', n > 0);
+      b.title = n ? n + ' mensagem(ns) ou relato(s) não lido(s)' : 'Mensagens, relatos e fotos dos participantes';
+    }
+    atualizarTitulo();
+    atualizarBotaoReabrir();
+  }
+
+  // Aviso visual + sonoro de mensagem nova. Várias de uma vez (ex.: reconexão) viram um aviso só.
+  function notificarEntrada(m) {
+    est.filaNotif.push(m);
+    clearTimeout(est.timerNotif);
+    est.timerNotif = setTimeout(descarregarNotificacoes, 400);
+  }
+
+  function descarregarNotificacoes() {
+    var fila = est.filaNotif.filter(function (m) { return !jaLida(m); });
+    est.filaNotif = [];
+    if (!fila.length || !est.op) return;
+    var texto;
+    if (fila.length === 1) {
+      var m = fila[0];
+      var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+      var relato = m.categoria && m.categoria !== 'MENSAGEM';
+      texto = (relato ? 'RELATO (' + cat.rotulo + ') de ' : 'Mensagem de ') + nomeDoParticipante(m.participante_id, m.remetente_nome) +
+        ': ' + resumir(m.texto, 140);
+    } else {
+      texto = fila.length + ' novas mensagens/relatos dos participantes.';
+    }
+    avisoClicavel(texto + ' Toque para abrir.', function () {
+      if (fila.length === 1) abrirConversa(fila[0].participante_id);
+      else abrirCentral('msgs');
+    });
+    bipeMensagem();
+    var b = $('btn-mensagens');
+    b.classList.remove('pulsar');
+    void b.offsetWidth;
+    b.classList.add('pulsar');
+  }
+
+  function avisoClicavel(texto, acao) {
+    UI.aviso(texto, 'msg', 10000);
+    var a = $('avisos').lastElementChild;
+    if (!a) return;
+    a.classList.add('clicavel');
+    a.setAttribute('tabindex', '0');
+    a.addEventListener('click', function () { if (a.parentNode) a.parentNode.removeChild(a); acao(); });
+    a.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); a.click(); } });
+  }
+
+  function bipeMensagem() {
+    var ac = est.audio;
+    if (!ac) return;
+    try {
+      if (ac.state === 'suspended') ac.resume();
+      var t = ac.currentTime;
+      [0, 0.18].forEach(function (d, i) {
+        var o = ac.createOscillator(), g = ac.createGain();
+        o.type = 'sine';
+        o.frequency.value = i ? 1175 : 880;
+        g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.exponentialRampToValueAtTime(0.25, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.16);
+        o.connect(g); g.connect(ac.destination);
+        o.start(t + d); o.stop(t + d + 0.18);
+      });
+    } catch (e) { /* ignora */ }
+  }
+
+  // Marca como lidas as mensagens que estão sendo vistas (central aberta ou
+  // conversa do participante aberta na ficha). O participante vê "Lida por …".
+  function marcarLidasVisiveis() {
+    if (!est.op || document.visibilityState === 'hidden') return;
+    var centralAberta = !$('central').hidden && est.centralAba === 'msgs';
+    var fichaDe = !$('ficha').hidden ? est.selecionado : null;
+    if (!centralAberta && !fichaDe) return;
+    var ids = [];
+    naoLidas().forEach(function (m) {
+      if ((centralAberta || m.participante_id === fichaDe) && !est.marcandoLidas.has(m.id)) ids.push(m.id);
+    });
+    if (centralAberta) ids.forEach(function (id) { est.destaqueNovas.add(id); });
+    marcarLidas(ids);
+  }
+
+  function marcarLidas(ids) {
+    ids = ids.filter(function (id) { return !est.marcandoLidas.has(id); });
+    if (!ids.length) return;
+    ids.forEach(function (id) { est.lidasLocal.add(id); est.marcandoLidas.add(id); });
+    atualizarContadorMsgs();
+    est.listaSuja = true;
+    renderizarLista();
+    est.participantes.forEach(atualizarAparenciaMarcador);
+    C.rpc('marcar_lidas', { p_ids: ids }).then(function () {
+      var agora = new Date().toISOString();
+      ids.forEach(function (id) {
+        var m = est.mensagens.get(id);
+        if (m && !m.lida_em) { m.lida_em = agora; m.lida_por_nome = est.responsavel ? est.responsavel.nome : null; }
+      });
+      agendarCentral();
+      if (est.selecionado) atualizarFicha();
+    }).catch(function () {
+      // sem conexão: volta a contar como não lida e tenta de novo depois
+      ids.forEach(function (id) { est.lidasLocal.delete(id); });
+      atualizarContadorMsgs();
+    }).then(function () {
+      ids.forEach(function (id) { est.marcandoLidas.delete(id); });
+    });
+  }
+
+  /* ---------- Relatos com localização no mapa ------------------------ */
+  function iconeRelato(m) {
+    var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+    return L.divIcon({
+      className: 'mk-relato-wrap',
+      html: '<div class="mk-relato cat-' + C.esc(m.categoria || 'MENSAGEM') + '"><span>' + C.esc(cat.letra) + '</span></div>',
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+    });
+  }
+
+  function atualizarRelato(m) {
+    if (!est.camadaPontos) return;
+    var tem = m.direcao === 'entrada' && m.lat != null && m.lng != null;
+    var mk = est.relatosMarc.get(m.id);
+    if (!tem) {
+      if (mk) { est.camadaPontos.removeLayer(mk); est.relatosMarc.delete(m.id); }
+      return;
+    }
+    if (mk) return;
+    var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+    mk = L.marker([m.lat, m.lng], {
+      icon: iconeRelato(m),
+      keyboard: true,
+      title: cat.rotulo + ' — ' + nomeDoParticipante(m.participante_id, m.remetente_nome) + ' às ' + C.hora(m.criada_em, false),
+      alt: cat.rotulo,
+      pane: 'pontos',        // participantes ficam por cima
+      tipoPonto: 'relato',
+    });
+    mk.on('click', function () { abrirRelato(m.id); });
+    est.relatosMarc.set(m.id, mk);
+    if (est.prefsMapa.relatos) est.camadaPontos.addLayer(mk);
+  }
+
+  function destacarNoMapa(grupo, mk, lat, lng) {
+    if (!est.mapa) return;
+    if (telaPequena()) { fecharCentral(); if (!$('ficha').hidden) fecharFicha(); }
+    UI.fecharModal();
+    function piscar() {
+      var el = mk && mk.getElement && mk.getElement();
+      if (!el) return;
+      el.classList.add('destaque');
+      setTimeout(function () { el.classList.remove('destaque'); }, 3500);
+    }
+    if (mk && grupo && grupo.zoomToShowLayer && est.mapa.hasLayer(grupo)) {
+      grupo.zoomToShowLayer(mk, function () { est.mapa.panTo([lat, lng]); setTimeout(piscar, 300); });
+    } else {
+      est.mapa.setView([lat, lng], Math.max(est.mapa.getZoom(), 17));
+      setTimeout(piscar, 300);
+    }
+  }
+
+  function verRelatoNoMapa(m) {
+    if (m.lat == null) return;
+    if (!est.prefsMapa.relatos) definirPrefMapa('relatos', true);
+    destacarNoMapa(est.camadaPontos, est.relatosMarc.get(m.id), m.lat, m.lng);
+  }
+
+  function abrirRelato(id) {
+    var m = est.mensagens.get(id);
+    if (!m) return;
+    var p = est.participantes.get(m.participante_id);
+    var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+    marcarLidas([m.id]);
+    var dl = UI.el('dl', { classe: 'dados' });
+    function linha(rot, valor) { dl.appendChild(UI.el('dt', { texto: rot })); dl.appendChild(UI.el('dd', null, [valor])); }
+    linha('Enviado por', nomeDoParticipante(m.participante_id, m.remetente_nome) + (p ? ' (' + TIPOS[tipoDe(p.dados)].rotulo.toLowerCase() + ')' : ''));
+    linha('Horário', C.hora(m.criada_em) + ' (' + C.idade(m.criada_em) + ')');
+    linha('Latitude', C.coord(m.lat));
+    linha('Longitude', C.coord(m.lng));
+    linha('Precisão', C.precisao(m.precisao));
+    if (m.posicao_em) linha('Posição obtida às', C.hora(m.posicao_em));
+    linha('Leitura', m.lida_em ? 'Lida por ' + (m.lida_por_nome || 'responsável') + ' às ' + C.hora(m.lida_em, false) : 'Lida agora por você');
+    var fechar = UI.abrirModal(UI.el('div', { classe: 'visor-relato' }, [
+      UI.el('h2', { id: 'modal-titulo', texto: m.categoria && m.categoria !== 'MENSAGEM' ? 'Relato: ' + cat.rotulo : 'Mensagem com localização' }),
+      UI.el('p', { classe: 'relato-texto', texto: m.texto }),
+      dl,
+      UI.el('div', { classe: 'modal-acoes' }, [
+        UI.el('button', { classe: 'btn', type: 'button', texto: 'Ver no mapa', onclick: function () { fechar(); verRelatoNoMapa(m); } }),
+        p ? UI.el('button', { classe: 'btn btn-escuro', type: 'button', texto: 'Abrir conversa', onclick: function () { fechar(); abrirConversa(m.participante_id); } }) : null,
+        UI.el('button', { classe: 'btn', type: 'button', texto: 'Fechar', onclick: function () { fechar(); } }),
+      ]),
+    ]));
+  }
+
+  /* ---------- Conversa na ficha ------------------------------------ */
+  function renderizarConversa(p) {
+    var msgs = [];
+    est.mensagens.forEach(function (m) { if (m.participante_id === p.id) msgs.push(m); });
+    msgs.sort(function (a, b) { return C.paraMs(a.criada_em) - C.paraMs(b.criada_em); });
+    var cod = estadoDe(p).cod;
+    var assinatura = p.id + '|' + cod + '|' + msgs.map(function (m) {
+      return m.id + ':' + (m.entregue_em || '') + (m.confirmada_em || '') + (m.resposta || '') + (jaLida(m) ? 'L' : '') + (m.lida_por_nome || '');
+    }).join(',');
+    if (assinatura === est.assinaturaConversa) return;
+    var primeira = est.assinaturaConversa.split('|')[0] !== p.id;
+    est.assinaturaConversa = assinatura;
+    var ul = $('ficha-msgs');
+    var noFim = ul.scrollHeight - ul.scrollTop - ul.clientHeight < 40;
+    ul.innerHTML = '';
+    if (!msgs.length) ul.appendChild(UI.el('li', { classe: 'muted vazio', texto: 'Nenhuma mensagem.' }));
+    msgs.forEach(function (m) {
+      if (m.direcao === 'entrada') {
+        var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+        var relato = m.categoria && m.categoria !== 'MENSAGEM';
+        ul.appendChild(UI.el('li', { classe: 'entrada' + (relato ? ' relato' : '') + (jaLida(m) ? '' : ' nao-lida') }, [
+          UI.el('div', { classe: 'msg-topo' }, [
+            UI.el('span', { texto: relato ? 'RELATO · ' + cat.rotulo : nomeDoParticipante(m.participante_id, m.remetente_nome) }),
+            UI.el('span', { classe: 'muted num', texto: C.hora(m.criada_em) }),
+          ]),
+          UI.el('div', { classe: 'msg-texto', texto: m.texto }),
+          UI.el('div', { classe: 'msg-estado' }, [
+            m.lat != null
+              ? UI.el('button', { classe: 'btn btn-pequeno btn-link', type: 'button', texto: 'Ver no mapa (' + C.precisao(m.precisao) + ')', onclick: function () { verRelatoNoMapa(m); } })
+              : UI.el('span', { classe: 'muted', texto: 'Sem localização' }),
+            UI.el('span', { classe: 'muted', texto: m.lida_em ? '· Lida por ' + (m.lida_por_nome || 'responsável') + ' às ' + C.hora(m.lida_em, false) : '· Nova' }),
+          ]),
+        ]));
+        return;
+      }
+      var t = C.TIPOS_MENSAGEM[m.tipo] || C.TIPOS_MENSAGEM.PERSONALIZADA;
+      var st = estadoMensagem(m, p);
+      ul.appendChild(UI.el('li', { classe: 'saida' }, [
+        UI.el('div', { classe: 'msg-topo' }, [UI.el('span', { texto: t.rotulo }), UI.el('span', { classe: 'muted num', texto: C.hora(m.criada_em) })]),
+        UI.el('div', { classe: 'msg-texto', texto: m.texto || t.padrao }),
+        UI.el('div', { classe: 'msg-estado' }, [UI.el('span', { classe: 'selo ' + st.cls, texto: st.txt })]),
+        UI.el('div', { classe: 'muted msg-autor', texto: 'Por ' + (m.remetente_nome || '—') }),
+      ]));
+    });
+    if (primeira || noFim) ul.scrollTop = ul.scrollHeight;
+  }
+
+  function abrirConversa(pid) {
+    if (!est.participantes.has(pid)) return;
+    if (telaPequena()) { est.centralVoltar = !$('central').hidden; }
+    selecionar(pid);
+    setTimeout(function () {
+      var bloco = $('ficha-conversa');
+      if (bloco) bloco.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      var ta = $('resposta-texto');
+      if (ta && !$('form-resposta').hidden) ta.focus({ preventScroll: true });
+    }, 60);
+  }
+
+  // Resposta rápida (mensagem livre) sem sair da ficha.
+  async function enviarResposta(ev) {
+    if (ev) ev.preventDefault();
+    var p = est.participantes.get(est.selecionado);
+    if (!p) return;
+    var ta = $('resposta-texto');
+    var texto = ta.value.trim();
+    if (!texto) {
+      UI.aviso('Escreva a mensagem antes de enviar.', 'erro');
+      ta.focus();
+      return;
+    }
+    var btn = $('btn-responder');
+    btn.disabled = true;
+    btn.textContent = 'Enviando…';
+    try {
+      var m = await C.rpc('enviar_mensagem', { p_participante: p.id, p_tipo: 'PERSONALIZADA', p_texto: texto.slice(0, 500) });
+      ta.value = '';
+      receberMensagem(m, true);
+      marcarLidas(naoLidasDe(p.id).map(function (x) { return x.id; }));
+      UI.aviso('Mensagem enviada a ' + p.dados.nome + '.', 'ok');
+    } catch (e) {
+      UI.aviso('Mensagem não enviada: ' + e.message, 'erro', 8000);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Enviar';
+    }
+  }
+
+  /* ---------- Central de comunicação (mensagens, relatos e fotos) ----- */
+  function abrirCentral(aba) {
+    if (!est.op) return;
+    if (aba) est.centralAba = aba;
+    if (telaPequena() && !$('ficha').hidden) {
+      est.centralVoltar = false;
+      fecharFicha();
+    }
+    fecharMenu(false);
+    $('central').hidden = false;
+    $('btn-mensagens').setAttribute('aria-expanded', 'true');
+    document.body.classList.add('central-aberta');
+    mostrarAbaCentral(est.centralAba);
+  }
+
+  function fecharCentral() {
+    var c = $('central');
+    if (!c || c.hidden) return;
+    c.hidden = true;
+    $('btn-mensagens').setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('central-aberta');
+    est.destaqueNovas = new Set();
+  }
+
+  function mostrarAbaCentral(aba) {
+    est.centralAba = aba === 'fotos' ? 'fotos' : 'msgs';
+    var msgs = est.centralAba === 'msgs';
+    $('aba-msgs').classList.toggle('btn-ativo', msgs);
+    $('aba-msgs').setAttribute('aria-selected', String(msgs));
+    $('aba-fotos').classList.toggle('btn-ativo', !msgs);
+    $('aba-fotos').setAttribute('aria-selected', String(!msgs));
+    $('painel-msgs').hidden = !msgs;
+    $('painel-fotos').hidden = msgs;
+    renderizarCentral();
+  }
+
+  function agendarCentral() {
+    if (est.rafCentral) return;
+    est.rafCentral = requestAnimationFrame(function () {
+      est.rafCentral = null;
+      renderizarCentral();
+    });
+  }
+
+  function renderizarCentral() {
+    $('qtd-fotos').textContent = String(est.fotos.size);
+    renderizarFilaFotos();
+    if ($('central').hidden || !est.op) return;
+    if (est.centralAba === 'msgs') renderizarFeed();
+    else renderizarGaleria();
+    marcarLidasVisiveis();
+  }
+
+  function renderizarFeed() {
+    document.querySelectorAll('[data-filtro]').forEach(function (b) {
+      b.classList.toggle('btn-ativo', b.getAttribute('data-filtro') === est.centralFiltro);
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-filtro') === est.centralFiltro));
+    });
+    var lista = [];
+    est.mensagens.forEach(function (m) {
+      if (m.direcao !== 'entrada') return;
+      var relato = m.categoria && m.categoria !== 'MENSAGEM';
+      if (est.centralFiltro === 'relatos' && !relato) return;
+      if (est.centralFiltro === 'mensagens' && relato) return;
+      lista.push(m);
+    });
+    lista.sort(function (a, b) { return C.paraMs(b.criada_em) - C.paraMs(a.criada_em); });
+    var ul = $('feed-msgs');
+    ul.innerHTML = '';
+    $('feed-vazio').hidden = lista.length > 0;
+    $('feed-vazio').textContent = est.centralFiltro === 'todas'
+      ? 'Nenhuma mensagem dos participantes ainda. Quando alguém escrever ou relatar algo pelo link, aparece aqui.'
+      : 'Nada neste filtro.';
+    lista.slice(0, 300).forEach(function (m) {
+      var p = est.participantes.get(m.participante_id);
+      var cat = CATEGORIAS[m.categoria] || CATEGORIAS.MENSAGEM;
+      var relato = m.categoria && m.categoria !== 'MENSAGEM';
+      var simb = UI.el('span', { classe: 'feed-simbolo' });
+      if (p) simb.innerHTML = htmlSimbolo(p);
+      var topo = UI.el('div', { classe: 'feed-topo' }, [
+        simb,
+        UI.el('strong', { texto: nomeDoParticipante(m.participante_id, m.remetente_nome) }),
+        relato ? UI.el('span', { classe: 'selo selo-relato', texto: cat.rotulo }) : null,
+        UI.el('span', { classe: 'muted num feed-hora', texto: C.hora(m.criada_em, false) }),
+      ]);
+      var acoes = UI.el('div', { classe: 'feed-acoes' }, [
+        m.lat != null ? UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Ver no mapa', onclick: function () { verRelatoNoMapa(m); } }) : null,
+        p ? UI.el('button', { classe: 'btn btn-pequeno btn-escuro', type: 'button', texto: 'Responder', onclick: function () { abrirConversa(m.participante_id); } }) : null,
+      ]);
+      ul.appendChild(UI.el('li', { classe: 'feed-item' + (relato ? ' relato' : '') + (est.destaqueNovas.has(m.id) || !jaLida(m) ? ' nova' : ''), 'data-id': m.id }, [
+        topo,
+        UI.el('div', { classe: 'feed-texto', texto: m.texto }),
+        UI.el('div', { classe: 'feed-meta', texto:
+          (m.lat != null ? 'Com localização (' + C.precisao(m.precisao) + ')' : 'Sem localização') + ' · ' + C.idade(m.criada_em) +
+          (m.lida_em ? ' · lida por ' + (m.lida_por_nome || 'responsável') : '') }),
+        acoes,
+      ]));
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Fotografias georreferenciadas                                        */
+  /* ------------------------------------------------------------------ */
+  async function carregarFotos(silencioso) {
+    var opId = est.op.id;
+    var lista;
+    try {
+      lista = await C.consultarTudo(function () {
+        return C.cliente.from('fotos').select('*').eq('operacao_id', opId).order('registrada_em', { ascending: true });
+      });
+    } catch (e) {
+      return;   // tenta de novo na próxima conferência (não derruba o restante)
+    }
+    if (!est.op || est.op.id !== opId) return;
+    var ids = new Set();
+    lista.forEach(function (f) { ids.add(f.id); adicionarFoto(f, silencioso); });
+    Array.from(est.fotos.keys()).forEach(function (id) { if (!ids.has(id)) removerFoto(id); });
+  }
+
+  function iconeFoto() {
+    return L.divIcon({ className: 'mk-foto-wrap', html: '<div class="mk-foto"><span class="ico-camera"></span></div>', iconSize: [32, 32], iconAnchor: [16, 16] });
+  }
+
+  function adicionarFoto(f, silencioso) {
+    if (!est.op || f.operacao_id !== est.op.id) return;
+    var antiga = est.fotos.get(f.id);
+    est.fotos.set(f.id, f);
+    if (!antiga) {
+      if (f.lat != null && f.lng != null && est.camadaPontos) {
+        var mk = L.marker([f.lat, f.lng], {
+          icon: iconeFoto(),
+          keyboard: true,
+          title: 'Foto de ' + nomeDoParticipante(f.participante_id, f.autor_nome) + ' às ' + C.hora(f.capturada_em || f.registrada_em, false),
+          alt: 'Foto',
+          pane: 'pontos',    // participantes ficam por cima
+          tipoPonto: 'foto',
+        });
+        mk.on('click', function () { abrirFoto(f.id); });
+        est.fotosMarc.set(f.id, mk);
+        if (est.prefsMapa.fotos) est.camadaPontos.addLayer(mk);
+      }
+      if (!silencioso && f.participante_id !== est.meuPart) {
+        avisoClicavel('Nova foto de ' + nomeDoParticipante(f.participante_id, f.autor_nome) +
+          (f.lat != null ? '' : ' (sem localização)') + (f.legenda ? ': ' + resumir(f.legenda, 80) : '') + '. Toque para ver.', function () { abrirFoto(f.id); });
+        bipeMensagem();
+      }
+    }
+    agendarCentral();
+    if (est.selecionado === f.participante_id) atualizarFicha();
+  }
+
+  function removerFoto(id) {
+    var mk = est.fotosMarc.get(id);
+    if (mk && est.camadaPontos) est.camadaPontos.removeLayer(mk);
+    est.fotosMarc.delete(id);
+    est.fotos.delete(id);
+    agendarCentral();
+  }
+
+  function fotosOrdenadas(pid) {
+    return Array.from(est.fotos.values())
+      .filter(function (f) { return !pid || f.participante_id === pid; })
+      .sort(function (a, b) { return C.paraMs(b.registrada_em) - C.paraMs(a.registrada_em); });
+  }
+
+  function miniatura(f, lista) {
+    var img = UI.el('img', { alt: f.legenda || 'Foto de ' + (f.autor_nome || ''), loading: 'lazy', 'data-caminho': f.caminho, decoding: 'async' });
+    var u = window.Fotos.urlEmCache(f.caminho);
+    if (u) img.src = u;
+    img.addEventListener('error', function () { img.parentNode && img.parentNode.classList.add('falhou'); });
+    return UI.el('button', {
+      classe: 'miniatura' + (f.lat == null ? ' sem-local' : ''), type: 'button',
+      title: 'Foto de ' + (f.autor_nome || '') + ' — ' + C.hora(f.capturada_em || f.registrada_em),
+      onclick: function () { abrirFoto(f.id, lista); },
+    }, [img, f.lat == null ? UI.el('span', { classe: 'tag-sem-local', texto: 'sem local' }) : null]);
+  }
+
+  async function carregarMiniaturas(raiz) {
+    var imgs = Array.from(raiz.querySelectorAll('img[data-caminho]:not([src])'));
+    if (!imgs.length) return;
+    var caminhos = Array.from(new Set(imgs.map(function (i) { return i.getAttribute('data-caminho'); })));
+    try {
+      var urls = await window.Fotos.urlsAssinadas(caminhos);
+      imgs.forEach(function (i) { var u = urls[i.getAttribute('data-caminho')]; if (u) i.src = u; });
+    } catch (e) {
+      imgs.forEach(function (i) { if (i.parentNode) i.parentNode.classList.add('falhou'); });
+    }
+  }
+
+  function renderizarGaleria() {
+    var fotos = fotosOrdenadas();
+    var ids = fotos.map(function (f) { return f.id; });
+    var ul = $('galeria');
+    var assinatura = ids.join(',');
+    $('galeria-vazia').hidden = fotos.length > 0;
+    if (ul.getAttribute('data-assinatura') === assinatura) { carregarMiniaturas(ul); return; }
+    ul.setAttribute('data-assinatura', assinatura);
+    ul.innerHTML = '';
+    fotos.forEach(function (f) {
+      ul.appendChild(UI.el('li', { classe: 'galeria-item' }, [
+        miniatura(f, ids),
+        UI.el('div', { classe: 'galeria-info' }, [
+          UI.el('strong', { texto: nomeDoParticipante(f.participante_id, f.autor_nome) }),
+          UI.el('span', { classe: 'muted', texto: C.hora(f.capturada_em || f.registrada_em, false) + (f.lat == null ? ' · sem localização' : '') }),
+          f.legenda ? UI.el('span', { classe: 'galeria-legenda', texto: f.legenda }) : null,
+        ]),
+      ]));
+    });
+    carregarMiniaturas(ul);
+  }
+
+  function renderizarFotosFicha(p) {
+    var fotos = fotosOrdenadas(p.id);
+    var bloco = $('ficha-fotos-bloco');
+    bloco.hidden = !fotos.length;
+    $('ficha-qtd-fotos').textContent = String(fotos.length);
+    var ul = $('ficha-fotos');
+    var ids = fotos.map(function (f) { return f.id; });
+    var assinatura = p.id + ':' + ids.join(',');
+    if (ul.getAttribute('data-assinatura') !== assinatura) {
+      ul.setAttribute('data-assinatura', assinatura);
+      ul.innerHTML = '';
+      fotos.forEach(function (f) { ul.appendChild(UI.el('li', null, [miniatura(f, ids)])); });
+    }
+    if (fotos.length) carregarMiniaturas(ul);
+  }
+
+  // Janela da foto: imagem, autor, horários (captura × registro) e coordenadas.
+  function abrirFoto(id, lista) {
+    var f = est.fotos.get(id);
+    if (!f) { UI.aviso('Esta foto não está mais disponível.', 'erro'); return; }
+    lista = (lista && lista.length ? lista : fotosOrdenadas().map(function (x) { return x.id; }))
+      .filter(function (x) { return est.fotos.has(x); });
+    var pos = lista.indexOf(id);
+    var p = est.participantes.get(f.participante_id);
+    var autor = nomeDoParticipante(f.participante_id, f.autor_nome);
+    var tipoAutor = TIPOS[f.autor_tipo === 'militar' ? 'militar' : f.autor_tipo === 'responsavel' ? 'responsavel' : 'civil'];
+
+    var caixa = UI.el('div', { classe: 'visor-img carregando' }, [UI.el('span', { classe: 'visor-status', texto: 'Carregando a foto…' })]);
+    var urlAtual = null;
+    async function carregar() {
+      caixa.className = 'visor-img carregando';
+      caixa.innerHTML = '';
+      caixa.appendChild(UI.el('span', { classe: 'visor-status', texto: 'Carregando a foto…' }));
+      try {
+        urlAtual = window.Fotos.urlEmCache(f.caminho) || (await window.Fotos.urlsAssinadas([f.caminho]))[f.caminho];
+        if (!urlAtual) throw new Error('arquivo não encontrado');
+      } catch (e) {
+        mostrarFalha(e.rede ? 'sem conexão' : (e.message || 'erro'));
+        return;
+      }
+      var img = UI.el('img', { alt: f.legenda || 'Foto registrada por ' + autor, id: 'visor-imagem' });
+      img.addEventListener('load', function () { caixa.className = 'visor-img'; var st = caixa.querySelector('.visor-status'); if (st) st.remove(); });
+      img.addEventListener('error', function () { mostrarFalha('conexão lenta ou link expirado'); });
+      img.addEventListener('click', function () { abrirLightbox(urlAtual, img.alt); });
+      img.src = urlAtual;
+      caixa.appendChild(img);
+    }
+    function mostrarFalha(motivo) {
+      caixa.className = 'visor-img falhou';
+      caixa.innerHTML = '';
+      caixa.appendChild(UI.el('span', { classe: 'visor-status', texto: 'Não foi possível carregar a imagem (' + motivo + ').' }));
+      caixa.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Tentar de novo', onclick: carregar }));
+    }
+
+    var dl = UI.el('dl', { classe: 'dados' });
+    function linha(rot, valor) { dl.appendChild(UI.el('dt', { texto: rot })); dl.appendChild(UI.el('dd', null, [valor])); }
+    var selo = UI.el('span', { classe: 'selo ' + tipoAutor.selo, texto: tipoAutor.rotulo });
+    linha('Registrada por', UI.el('span', null, [autor + ' ', selo]));
+    linha('Capturada em', f.capturada_em ? C.hora(f.capturada_em) : 'desconhecido');
+    var atraso = f.capturada_em ? C.paraMs(f.registrada_em) - C.paraMs(f.capturada_em) : 0;
+    linha('Recebida às', C.hora(f.registrada_em) + (atraso > 120000 ? ' (enviada ' + C.idade(f.capturada_em, C.paraMs(f.registrada_em)).replace('há ', '') + ' depois da captura)' : ''));
+    if (f.lat != null) {
+      linha('Latitude', UI.el('span', { classe: 'mono', texto: C.coord(f.lat) }));
+      linha('Longitude', UI.el('span', { classe: 'mono', texto: C.coord(f.lng) }));
+      linha('Precisão', C.precisao(f.precisao));
+      linha('Origem do local', ORIGEM_FOTO[f.origem_posicao] || f.origem_posicao);
+    } else {
+      linha('Localização', 'Sem localização (o aparelho não informou) — a foto não aparece no mapa.');
+    }
+    if (f.legenda) linha('Descrição', f.legenda);
+    if (f.largura) linha('Imagem', f.largura + ' × ' + f.altura + ' px' + (f.bytes ? ' · ' + Math.round(f.bytes / 1024) + ' KB' : ''));
+
+    var nav = lista.length > 1 ? UI.el('div', { classe: 'visor-nav' }, [
+      UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: '‹ Anterior', disabled: pos <= 0 ? true : null, onclick: function () { abrirFoto(lista[pos - 1], lista); } }),
+      UI.el('span', { classe: 'muted num', texto: (pos + 1) + ' de ' + lista.length }),
+      UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Próxima ›', disabled: pos >= lista.length - 1 ? true : null, onclick: function () { abrirFoto(lista[pos + 1], lista); } }),
+    ]) : null;
+
+    var fechar = UI.abrirModal(UI.el('div', { classe: 'visor-foto' }, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'Foto de ' + autor }),
+      caixa,
+      nav,
+      dl,
+      UI.el('div', { classe: 'modal-acoes' }, [
+        UI.el('button', { classe: 'btn', type: 'button', id: 'visor-ampliar', texto: 'Ampliar', onclick: function () { if (urlAtual) abrirLightbox(urlAtual, 'Foto de ' + autor); } }),
+        f.lat != null ? UI.el('button', { classe: 'btn', type: 'button', texto: 'Ver no mapa', onclick: function () {
+          fechar();
+          if (!est.prefsMapa.fotos) definirPrefMapa('fotos', true);
+          destacarNoMapa(est.camadaPontos, est.fotosMarc.get(f.id), f.lat, f.lng);
+        } }) : null,
+        p ? UI.el('button', { classe: 'btn', type: 'button', texto: 'Ficha de ' + p.dados.nome, onclick: function () { fechar(); selecionar(p.id); } }) : null,
+        UI.el('button', { classe: 'btn btn-escuro', type: 'button', texto: 'Fechar', onclick: function () { fechar(); } }),
+      ]),
+    ]), { aoFechar: fecharLightbox });
+    carregar();
+  }
+
+  // Imagem em tela cheia. Toque na imagem: tamanho real (com rolagem); fora dela: fecha.
+  function abrirLightbox(url, alt) {
+    fecharLightbox();
+    var img = UI.el('img', { src: url, alt: alt || 'Foto' });
+    var btn = UI.el('button', { classe: 'btn lightbox-fechar', type: 'button', texto: 'Fechar', 'aria-label': 'Fechar a imagem ampliada' });
+    var caixa = UI.el('div', { classe: 'lightbox', role: 'dialog', 'aria-modal': 'true', 'aria-label': alt || 'Foto ampliada' }, [img, btn]);
+    img.addEventListener('click', function (ev) { ev.stopPropagation(); caixa.classList.toggle('tamanho-real'); });
+    caixa.addEventListener('click', fecharLightbox);
+    document.addEventListener('keydown', teclaLightbox, true);
+    document.body.appendChild(caixa);
+    btn.focus();
+  }
+
+  function teclaLightbox(ev) {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      fecharLightbox();
+    }
+  }
+
+  function fecharLightbox() {
+    var c = document.querySelector('.lightbox');
+    document.removeEventListener('keydown', teclaLightbox, true);
+    if (c && c.parentNode) {
+      c.parentNode.removeChild(c);
+      var b = $('visor-ampliar');
+      if (b) b.focus();
+    }
+  }
+
+  /* ---------- Fotos tiradas pelo próprio responsável ----------------- */
+  function obterMinhaPosicao() {
+    var u = est.compartilhando && est.ultimoAceitoMeu && est.ultimoAceitoMeu.prec != null && est.ultimoAceitoMeu.prec <= 100 ? est.ultimoAceitoMeu : null;
+    if (u && Date.now() - u.t < 15000) {
+      return Promise.resolve({ ok: true, lat: u.lat, lng: u.lng, prec: u.prec, t: u.t });
+    }
+    if (!('geolocation' in navigator) || !window.isSecureContext) return Promise.resolve({ ok: false, motivo: 'navegador sem acesso à localização' });
+    return new Promise(function (resolve) {
+      navigator.geolocation.getCurrentPosition(function (p) {
+        var agora = Date.now();
+        resolve({ ok: true, lat: p.coords.latitude, lng: p.coords.longitude, prec: p.coords.accuracy,
+          t: p.timestamp && Math.abs(p.timestamp - agora) < 864e5 ? p.timestamp : agora });
+      }, function (e) {
+        // parado, o GPS pode não entregar leitura nova: usa a última de até 2 min (com o horário real dela)
+        if (e.code !== 1 && u && Date.now() - u.t < 120000) {
+          resolve({ ok: true, lat: u.lat, lng: u.lng, prec: u.prec, t: u.t });
+          return;
+        }
+        resolve({ ok: false, motivo: e.code === 1 ? 'permissão de localização negada' : e.code === 2 ? 'GPS desligado ou indisponível' : 'sem sinal de GPS' });
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 });
+    });
+  }
+
+  function abrirRegistrarFoto() {
+    if (!est.op || est.op.status !== 'ativa') return;
+    prepararAudio();
+    var inCam = UI.el('input', { classe: 'sr-only', type: 'file', accept: 'image/*', capture: 'environment', id: 'painel-foto-camera' });
+    var inArq = UI.el('input', { classe: 'sr-only', type: 'file', accept: 'image/*', id: 'painel-foto-arquivo' });
+    inCam.addEventListener('change', function (ev) { aoEscolherFotoPainel(ev, true); });
+    inArq.addEventListener('change', function (ev) { aoEscolherFotoPainel(ev, false); });
+    var fechar = UI.abrirModal(UI.el('div', null, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'Registrar foto' }),
+      UI.el('p', { classe: 'ajuda', texto: 'A foto fica vinculada a você e a esta operação, com o local do GPS no momento do registro (ou o gravado na própria foto). Sem localização, ela é salva mas não aparece no mapa.' }),
+      UI.el('div', { classe: 'fotos-botoes' }, [
+        UI.el('label', { classe: 'btn btn-escuro btn-foto' }, [UI.el('span', { classe: 'ico-camera', 'aria-hidden': 'true' }), ' TIRAR FOTO', inCam]),
+        UI.el('label', { classe: 'btn btn-foto' }, ['Escolher arquivo', inArq]),
+      ]),
+      UI.el('div', { classe: 'modal-acoes' }, [UI.el('button', { classe: 'btn', type: 'button', texto: 'Cancelar', onclick: function () { fechar(); } })]),
+    ]));
+  }
+
+  async function aoEscolherFotoPainel(ev, daCamera) {
+    var arquivo = ev.target.files && ev.target.files[0];
+    UI.fecharModal();
+    if (!arquivo || !est.op) return;
+    var opId = est.op.id;
+    var f = await window.Fotos.lerArquivo(arquivo, daCamera, obterMinhaPosicao);
+    if (!f || !est.op || est.op.id !== opId) return;
+    window.Fotos.abrirPrevia(f, {
+      obterPosicao: obterMinhaPosicao,
+      aoSalvar: async function (d) {
+        if (!est.op || est.op.id !== opId) throw new Error('A operação foi fechada antes de salvar a foto.');
+        est.fotosFila.push(Object.assign(d, { id: C.uuid(), operacao_id: opId, participante_id: null, estado: 'fila' }));
+        renderizarFilaFotos();
+        enviarFilaFotos();
+      },
+    });
+  }
+
+  async function enviarFilaFotos() {
+    if (est.enviandoFotos || !est.fotosFila.length || !est.op) return;
+    est.enviandoFotos = true;
+    try {
+      while (est.fotosFila.length && est.op) {
+        var it = est.fotosFila[0];
+        if (it.operacao_id !== est.op.id) { est.fotosFila.shift(); continue; }
+        if (!est.meuPart) await entrarComoResponsavel();
+        if (!est.meuPart) break;   // sem conexão: tenta no próximo ciclo
+        it.participante_id = est.meuPart;
+        it.estado = 'enviando';
+        renderizarFilaFotos();
+        try {
+          var foto = await window.Fotos.enviar(it);
+          est.fotosFila.shift();
+          window.Fotos.guardarUrlLocal(foto.caminho, URL.createObjectURL(it.blob));
+          adicionarFoto(foto, true);
+          UI.aviso(foto.lat != null ? 'Foto registrada no mapa.' : 'Foto registrada sem localização (não aparece no mapa).', 'ok');
+        } catch (e) {
+          if (e.rede) {
+            it.estado = 'fila';
+            UI.aviso('Sem conexão: a foto ficou na fila e será enviada automaticamente. Não feche o painel.', 'erro', 8000);
+            break;
+          }
+          if (e.codigo === 'participante_invalido') est.meuPart = null;
+          est.fotosFila.shift();
+          UI.aviso('A foto não foi salva: ' + e.message, 'erro', 9000);
+        }
+      }
+    } finally {
+      est.enviandoFotos = false;
+      renderizarFilaFotos();
+    }
+  }
+
+  function renderizarFilaFotos() {
+    var caixa = $('minhas-fotos-fila');
+    if (!caixa) return;
+    var n = est.fotosFila.length;
+    caixa.hidden = !n;
+    if (!n) return;
+    caixa.innerHTML = '';
+    caixa.appendChild(UI.el('span', { texto: n + ' foto(s) sua(s) ' + (est.enviandoFotos ? 'sendo enviada(s)…' : 'aguardando conexão para envio.') + ' ' }));
+    if (!est.enviandoFotos) caixa.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Tentar agora', onclick: enviarFilaFotos }));
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Presença e posição do próprio responsável                            */
   /* ------------------------------------------------------------------ */
   // Registra este responsável no mapa da operação (sem posição até ele ligar "Minha posição").
@@ -1650,10 +2829,12 @@
     if (!b) return;
     b.setAttribute('aria-pressed', String(est.compartilhando));
     b.classList.toggle('ligado', est.compartilhando);
+    $('ferramentas').classList.toggle('compartilhando', est.compartilhando);
     var txt = { ok: 'GPS ativo', fraco: 'GPS com sinal fraco', sem_sinal: 'procurando sinal de GPS', negado: 'localização negada', indisponivel: 'GPS indisponível', aguardando: 'aguardando GPS' }[est.gpsMeu] || '';
     b.title = est.compartilhando
       ? 'Sua posição está sendo compartilhada com os outros responsáveis (' + txt + '). Toque para parar.'
       : 'Compartilhar sua posição com os outros responsáveis desta operação';
+    $('minha-pos-estado').textContent = est.compartilhando ? 'ligada · ' + txt : 'desligada';
   }
 
   async function alternarMinhaPosicao() {
@@ -1725,7 +2906,7 @@
       else aceitar = d >= CFG_GPS.distanciaMinimaM || dt >= CFG_GPS.intervaloMaximoMs;
     }
     if (aceitar) {
-      est.ultimoAceitoMeu = { lat: c.latitude, lng: c.longitude, t: t };
+      est.ultimoAceitoMeu = { lat: c.latitude, lng: c.longitude, t: t, prec: prec };
       est.filaMinha.push({
         id: C.uuid(),
         lat: Math.round(c.latitude * 1e7) / 1e7,
@@ -1833,7 +3014,7 @@
     if (!est.meuPart) return;
     var paraEntregar = [];
     est.mensagens.forEach(function (m) {
-      if (m.participante_id === est.meuPart && !m.entregue_em && !est.entregando.has(m.id)) {
+      if (m.participante_id === est.meuPart && m.direcao !== 'entrada' && !m.entregue_em && !est.entregando.has(m.id)) {
         est.entregando.add(m.id);
         paraEntregar.push(m.id);
       }
@@ -1849,7 +3030,7 @@
   function pendentesParaMim() {
     var lista = [];
     est.mensagens.forEach(function (m) {
-      if (est.meuPart && m.participante_id === est.meuPart && !m.confirmada_em && !est.confirmadasLocal.has(m.id)) lista.push(m);
+      if (est.meuPart && m.participante_id === est.meuPart && m.direcao !== 'entrada' && !m.confirmada_em && !est.confirmadasLocal.has(m.id)) lista.push(m);
     });
     return lista.sort(function (a, b) { return C.paraMs(b.criada_em) - C.paraMs(a.criada_em); });
   }
