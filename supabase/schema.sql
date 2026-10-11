@@ -154,7 +154,7 @@ alter table public.mensagens drop constraint if exists mensagens_direcao_check;
 alter table public.mensagens add constraint mensagens_direcao_check check (direcao in ('saida', 'entrada'));
 alter table public.mensagens drop constraint if exists mensagens_categoria_check;
 alter table public.mensagens add constraint mensagens_categoria_check
-  check (categoria is null or categoria in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO'));
+  check (categoria is null or categoria in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO', 'AJUDA'));
 alter table public.mensagens drop constraint if exists mensagens_tipo_check;
 alter table public.mensagens add constraint mensagens_tipo_check
   check (tipo in ('RETORNE', 'ATENCAO', 'MUDE_ROTA', 'PARE', 'CONFIRME', 'PERSONALIZADA', 'PARTICIPANTE'));
@@ -807,7 +807,7 @@ $$;
 -- ---------------------------------------------------------------------
 
 -- O participante escreve aos responsáveis (mensagem livre ou relato de campo:
--- objeto, vestígio, possível pista, obstáculo, outro), com localização opcional.
+-- objeto, vestígio, possível pista, obstáculo, outro) ou pedido de ajuda, com localização opcional.
 -- client_id torna o reenvio (após falta de internet) seguro: não duplica.
 create or replace function public.participante_enviar_mensagem(
   p_participante uuid, p_categoria text, p_texto text,
@@ -838,7 +838,8 @@ begin
   if v_status <> 'ativa' then
     raise exception 'operacao_encerrada';
   end if;
-  if v_cat not in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO') then
+  -- AJUDA = botão "Preciso de ajuda" da página do participante (alarme no painel)
+  if v_cat not in ('MENSAGEM', 'OBJETO', 'VESTIGIO', 'PISTA', 'OBSTACULO', 'OUTRO', 'AJUDA') then
     raise exception 'tipo_invalido';
   end if;
   if v_texto = '' then

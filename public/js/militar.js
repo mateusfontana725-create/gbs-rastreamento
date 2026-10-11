@@ -54,6 +54,7 @@
     OBJETO: { rotulo: 'Objeto encontrado', letra: 'O' },
     OBSTACULO: { rotulo: 'Obstáculo', letra: '!' },
     OUTRO: { rotulo: 'Outro', letra: '?' },
+    AJUDA: { rotulo: 'PEDIDO DE AJUDA', letra: 'SOS' },
   };
   var ORIGEM_FOTO = { gps: 'GPS do aparelho no momento do registro', exif: 'gravada na própria foto (EXIF)', nenhuma: 'sem localização' };
 
@@ -191,10 +192,10 @@
     $('btn-ferramentas').addEventListener('click', function () { alternarMenu(); });
     $('menu-fechar').addEventListener('click', function () { fecharMenu(true); });
     $('menu-ferramentas').addEventListener('click', function (ev) {
-      // fecha ao escolher uma opção (as ações acima já foram executadas pelos próprios botões)
+      // fecha ao escolher uma opção (na captura: antes de a ação desabilitar o botão)
       var item = ev.target.closest('.menu-item');
       if (item && !item.disabled) fecharMenu(false);
-    });
+    }, true);
     document.addEventListener('pointerdown', function (ev) {
       if (!$('menu-ferramentas').hidden && !$('ferramentas').contains(ev.target)) fecharMenu(false);
     });
@@ -1233,14 +1234,22 @@
     return tem;
   }
 
+  // Pedido de ajuda ainda não atendido: resposta "PRECISO DE AJUDA" a um CONFIRME
+  // ou o botão "Preciso de ajuda" da página do participante.
   function temAjuda(p) {
-    var ultima = null;
+    var ultima = null, sos = null;
     est.mensagens.forEach(function (m) {
-      if (m.participante_id === p.id && m.direcao !== 'entrada' && m.resposta && m.confirmada_em) {
+      if (m.participante_id !== p.id) return;
+      if (m.direcao === 'entrada') {
+        if (m.categoria === 'AJUDA' && (!sos || C.paraMs(m.criada_em) > C.paraMs(sos.criada_em))) sos = m;
+      } else if (m.resposta && m.confirmada_em) {
         if (!ultima || C.paraMs(m.confirmada_em) > C.paraMs(ultima.confirmada_em)) ultima = m;
       }
     });
-    return ultima && ultima.resposta === 'PRECISO_AJUDA' && !est.ajudaVista.has(ultima.id) ? ultima : null;
+    var resp = ultima && ultima.resposta === 'PRECISO_AJUDA' && !est.ajudaVista.has(ultima.id) ? ultima : null;
+    if (sos && est.ajudaVista.has(sos.id)) sos = null;
+    if (resp && sos) return C.paraMs(sos.criada_em) > C.paraMs(resp.confirmada_em) ? sos : resp;
+    return resp || sos;
   }
 
   function mensagensPendentes(p) {
@@ -1674,13 +1683,28 @@
     $('ficha-nome').textContent = nomeExibido(p);
     $('ficha-simbolo').innerHTML = htmlSimbolo(p);
 
+    // Topo da ficha: tipo e situação numa linha só. O essencial fica à vista;
+    // CPF, coordenadas e histórico ficam em "Mais detalhes".
+    $('ficha-resumo').innerHTML = htmlSeloTipo(d) + ' <span class="ponto ponto-' + e.cod + '"></span> ' + C.esc(e.rot);
+    var posTxt;
+    if (!pos) posTxt = 'Ainda sem posição';
+    else posTxt = 'Posição ' + C.idade(pos.t) + ' · ' + C.precisao(pos.prec) + (posicaoAntiga(p) ? ' · antiga' : '');
+    var gpsRuim = d.rastreando && ['sem_sinal', 'negado', 'indisponivel'].indexOf(d.gps_estado) !== -1;
+    $('ficha-pos').textContent = posTxt + (gpsRuim ? ' · ' + textoGps(d.gps_estado) : '');
+    $('ficha-pos').classList.toggle('antiga', !pos || posicaoAntiga(p) || gpsRuim);
+    var ligar = $('ficha-ligar');
+    ligar.hidden = !d.telefone;
+    if (d.telefone) {
+      ligar.href = 'tel:+55' + d.telefone;
+      ligar.textContent = '📞 Ligar';
+      ligar.title = 'Ligar para ' + formatarTelefone(d.telefone);
+      ligar.setAttribute('aria-label', ligar.title);
+    }
+
     var linhas = [
-      ['Tipo', htmlSeloTipo(d)],
       ['CPF', d.cpf ? '<span class="mono">' + formatarCpf(d.cpf, est.cpfVisivel.has(p.id)) + '</span> ' +
         '<button type="button" class="btn btn-pequeno btn-link" data-cpf="' + p.id + '">' + (est.cpfVisivel.has(p.id) ? 'ocultar' : 'mostrar') + '</button>' : '—'],
       ['Celular', d.telefone ? '<a class="tel" href="tel:+55' + C.esc(d.telefone) + '">' + formatarTelefone(d.telefone) + '</a>' : '—'],
-      ['Operação', C.esc(est.op.codigo) + '<br><span class="muted mono" style="font-size:.75rem">' + C.esc(est.op.id) + '</span>'],
-      ['Conexão', '<span class="ponto ponto-' + e.cod + '"></span> ' + C.esc(e.rot)],
       ['Rastreamento', ehResp ? (d.rastreando ? 'Compartilhando posição' : 'Posição não compartilhada') : (d.rastreando ? 'Ativo' : 'Interrompido')],
       ['GPS', C.esc(textoGps(d.gps_estado))],
       ['Latitude', '<span class="mono">' + C.coord(pos && pos.lat) + '</span>'],
@@ -1727,8 +1751,13 @@
     if (ajuda) {
       caixaAjuda.innerHTML = '';
       caixaAjuda.appendChild(UI.el('div', { classe: 'nota', style: 'background:#fee2e2;border-color:#b91c1c;color:#7f1d1d' }, [
-        UI.el('strong', { texto: 'PEDIU AJUDA às ' + C.hora(ajuda.confirmada_em) + '. ' }),
-        'Em resposta a: ' + (C.TIPOS_MENSAGEM[ajuda.tipo] || {}).rotulo + '. ',
+        UI.el('strong', { texto: 'PEDIU AJUDA às ' + C.hora(ajuda.direcao === 'entrada' ? ajuda.criada_em : ajuda.confirmada_em) + '. ' }),
+        ajuda.direcao === 'entrada'
+          ? 'Pelo botão "Preciso de ajuda"' + (ajuda.lat != null ? ', com a localização. ' : ' (sem localização). ')
+          : 'Em resposta a: ' + (C.TIPOS_MENSAGEM[ajuda.tipo] || {}).rotulo + '. ',
+        ajuda.direcao === 'entrada' && ajuda.lat != null
+          ? UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Ver no mapa', onclick: function () { verRelatoNoMapa(ajuda); } }) : null,
+        ' ',
         UI.el('button', {
           classe: 'btn btn-pequeno', type: 'button', texto: 'Marcar como atendido',
           onclick: function () {
@@ -1747,7 +1776,7 @@
     var aviso = $('ficha-cmd-aviso');
     aviso.hidden = !eu && podeEnviar && (e.cod === 'conectado' || e.cod === 'instavel' || e.cod === 'parado');
     aviso.textContent = eu
-      ? 'Esta é a sua ficha. Use o botão "Minha posição" no topo para compartilhar ou parar de compartilhar sua localização com os outros responsáveis.'
+      ? 'Esta é a sua ficha. Para compartilhar sua localização com os outros responsáveis, use Ferramentas → Minha posição.'
       : !podeEnviar ? 'Não é possível enviar mensagens: ' + (d.removido ? 'participante removido.' : 'operação encerrada.')
       : ehResp ? 'Este responsável está com o painel fechado ou sem conexão. A mensagem será entregue quando ele abrir o painel da operação.'
       : 'Atenção: o participante está sem conexão. A mensagem ficará aguardando e só será entregue quando o celular dele reconectar.';
@@ -1821,7 +1850,12 @@
     if (m.direcao === 'entrada') {
       // Mensagem ou relato do participante para os responsáveis.
       if (antiga && antiga.lida_em == null && m.lida_em != null) est.lidasLocal.delete(m.id);
-      if (!antiga && !silencioso && !m.lida_em) notificarEntrada(m);
+      if (!antiga && !silencioso && m.categoria === 'AJUDA' && !est.ajudaVista.has(m.id)) {
+        UI.aviso('PEDIDO DE AJUDA: ' + nomeDoParticipante(m.participante_id, m.remetente_nome) + (m.lat != null ? ' (com localização)' : ''), 'erro', 15000);
+        alarme();
+      } else if (!antiga && !silencioso && !m.lida_em) {
+        notificarEntrada(m);
+      }
       atualizarRelato(m);
       agendarCentral();
       atualizarContadorMsgs();
@@ -2202,7 +2236,9 @@
 
   function atualizarRelato(m) {
     if (!est.camadaPontos) return;
-    var tem = m.direcao === 'entrada' && m.lat != null && m.lng != null;
+    // No mapa só os relatos e pedidos de ajuda; mensagens comuns ficam na conversa
+    // (com "Ver no mapa" quando têm localização), para não poluir o mapa.
+    var tem = m.direcao === 'entrada' && m.lat != null && m.lng != null && m.categoria && m.categoria !== 'MENSAGEM';
     var mk = est.relatosMarc.get(m.id);
     if (!tem) {
       if (mk) { est.camadaPontos.removeLayer(mk); est.relatosMarc.delete(m.id); }

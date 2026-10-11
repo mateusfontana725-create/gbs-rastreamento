@@ -160,19 +160,28 @@
   // Prévia: a pessoa confere a foto e confirma ou cancela antes de salvar.
   // opcoes.obterPosicao: como em lerArquivo
   // opcoes.aoSalvar({origem, lat, lng, prec, posicao_em, capturada, legenda, blob, largura, altura, bytes})
+  // opcoes.simples: textos curtos, sem coordenadas nem dados técnicos (página do participante).
   function abrirPrevia(f, opcoes) {
+    var simples = Boolean(opcoes.simples);
     var url = URL.createObjectURL(f.blob);
     var origem = 'nenhuma';
     var posEscolhida = null;
     var infoLocal = UI.el('div', { classe: 'previa-local' });
     var escolhas = null;
     var legenda = UI.el('input', { classe: 'campo', id: 'foto-legenda', maxlength: '300', placeholder: 'Ex.: mochila azul ao lado da trilha' });
-    var btnSalvar = UI.el('button', { classe: 'btn btn-ok', type: 'button', id: 'foto-salvar', texto: 'SALVAR FOTO' });
+    if (opcoes.legenda) legenda.value = opcoes.legenda;
+    var rotuloSalvar = simples ? 'ENVIAR FOTO' : 'SALVAR FOTO';
+    var btnSalvar = UI.el('button', { classe: 'btn btn-ok', type: 'button', id: 'foto-salvar', texto: rotuloSalvar });
 
     function mostrarLocalCamera(p) {
       p = posicaoUtil(p);
       infoLocal.innerHTML = '';
-      if (p && p.ok) {
+      if (p && p.ok && simples) {
+        origem = 'gps';
+        posEscolhida = p;
+        infoLocal.appendChild(UI.el('p', { classe: 'ok-txt', texto: '📍 O local da foto vai junto.' }));
+        if (p.prec > 100) infoLocal.appendChild(UI.el('p', { classe: 'nota', texto: 'O sinal de GPS está fraco: o local pode não ser exato.' }));
+      } else if (p && p.ok) {
         origem = 'gps';
         posEscolhida = p;
         var idade = p.t && Date.now() - p.t > 20000 ? ' · obtida ' + C.idade(p.t) : '';
@@ -181,7 +190,9 @@
       } else {
         origem = 'nenhuma';
         posEscolhida = null;
-        infoLocal.appendChild(UI.el('p', { classe: 'nota', texto: 'Não foi possível obter a localização (' + ((p && p.motivo) || 'GPS indisponível') + '). A foto será salva SEM localização e não aparecerá no mapa.' }));
+        infoLocal.appendChild(UI.el('p', { classe: 'nota', texto: simples
+          ? 'Sem sinal de GPS agora: a foto vai sem o local.'
+          : 'Não foi possível obter a localização (' + ((p && p.motivo) || 'GPS indisponível') + '). A foto será salva SEM localização e não aparecerá no mapa.' }));
         infoLocal.appendChild(UI.el('button', {
           classe: 'btn btn-pequeno', type: 'button', texto: 'Tentar localizar de novo',
           onclick: async function () { this.disabled = true; mostrarLocalCamera(await opcoes.obterPosicao()); },
@@ -195,9 +206,15 @@
       // Foto da galeria: a posição atual pode não ser onde ela foi tirada. A pessoa escolhe.
       var temExif = f.exif && f.exif.lat != null;
       var ops = [];
-      if (temExif) ops.push(['exif', 'Local gravado na foto (' + C.coord(f.exif.lat) + ', ' + C.coord(f.exif.lng) + ')']);
-      ops.push(['atual', 'Minha posição atual (a foto foi tirada aqui)']);
-      ops.push(['nenhuma', 'Sem localização (não aparece no mapa)']);
+      if (simples) {
+        if (temExif) ops.push(['exif', 'No lugar gravado na própria foto']);
+        ops.push(['atual', 'Aqui, onde estou agora']);
+        ops.push(['nenhuma', 'Não sei']);
+      } else {
+        if (temExif) ops.push(['exif', 'Local gravado na foto (' + C.coord(f.exif.lat) + ', ' + C.coord(f.exif.lng) + ')']);
+        ops.push(['atual', 'Minha posição atual (a foto foi tirada aqui)']);
+        ops.push(['nenhuma', 'Sem localização (não aparece no mapa)']);
+      }
       escolhas = UI.el('div', { classe: 'previa-opcoes', role: 'radiogroup', 'aria-label': 'Local da foto' }, ops.map(function (o, i) {
         return UI.el('label', { classe: 'linha-opcao' }, [
           UI.el('input', { type: 'radio', name: 'foto-origem', value: o[0], checked: i === 0 ? true : null }), ' ' + o[1],
@@ -208,11 +225,11 @@
     }
 
     var fechar = UI.abrirModal(UI.el('div', { classe: 'previa-foto' }, [
-      UI.el('h2', { id: 'modal-titulo', texto: 'Conferir a foto' }),
+      UI.el('h2', { id: 'modal-titulo', texto: simples ? 'A foto ficou boa?' : 'Conferir a foto' }),
       UI.el('img', { src: url, alt: 'Prévia da foto', classe: 'previa-img' }),
-      UI.el('p', { classe: 'ajuda', texto: (f.capturada ? (f.capturaExata ? 'Capturada em ' : 'Data do arquivo: ') + C.hora(f.capturada) : 'Data de captura desconhecida') + ' · ' + Math.round(f.blob.size / 1024) + ' KB' }),
+      simples ? null : UI.el('p', { classe: 'ajuda', texto: (f.capturada ? (f.capturaExata ? 'Capturada em ' : 'Data do arquivo: ') + C.hora(f.capturada) : 'Data de captura desconhecida') + ' · ' + Math.round(f.blob.size / 1024) + ' KB' }),
       infoLocal,
-      UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'foto-legenda', texto: 'Descrição (opcional)' }), legenda]),
+      UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'foto-legenda', texto: simples ? 'O que é? (se quiser)' : 'Descrição (opcional)' }), legenda]),
       UI.el('div', { classe: 'modal-acoes' }, [
         UI.el('button', { classe: 'btn', type: 'button', texto: 'Cancelar', onclick: function () { fechar(); } }),
         btnSalvar,
@@ -231,9 +248,10 @@
           btnSalvar.textContent = 'LOCALIZANDO…';
           var p = posicaoUtil(await opcoes.obterPosicao());
           if (!p.ok) {
-            UI.aviso('Não foi possível obter sua localização (' + p.motivo + '). Escolha "Sem localização" ou tente de novo.', 'erro', 8000);
+            UI.aviso(simples ? 'Sem sinal de GPS agora. Escolha "Não sei" ou tente de novo.'
+              : 'Não foi possível obter sua localização (' + p.motivo + '). Escolha "Sem localização" ou tente de novo.', 'erro', 8000);
             btnSalvar.disabled = false;
-            btnSalvar.textContent = 'SALVAR FOTO';
+            btnSalvar.textContent = rotuloSalvar;
             return;
           }
           posEscolhida = p;

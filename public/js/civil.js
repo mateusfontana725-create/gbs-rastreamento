@@ -92,7 +92,7 @@
     $('btn-recarregar').addEventListener('click', function () { location.reload(); });
 
     if (!C.configurado) {
-      return mostrarErro('O aplicativo não está configurado no servidor (variáveis do Supabase ausentes). Avise o responsável.');
+      return mostrarErro('O aplicativo não está configurado no servidor (variáveis do Supabase ausentes). Avise os bombeiros.');
     }
     if (!window.isSecureContext) {
       return mostrarErro('Esta página precisa ser aberta por um endereço seguro (https://).');
@@ -102,7 +102,7 @@
     }
     estado.token = lerToken();
     if (!estado.token) {
-      return mostrarErro('Link incompleto. Abra o link completo enviado pelo responsável ou leia o QR Code novamente.');
+      return mostrarErro('Link incompleto. Abra o link completo enviado pelos bombeiros ou leia o QR Code novamente.');
     }
 
     try {
@@ -111,7 +111,7 @@
       return mostrarErro(e.rede ? 'Sem conexão com a internet. Conecte-se e toque em TENTAR NOVAMENTE.' : e.message);
     }
     if (!estado.info) {
-      return mostrarErro('Link de operação inválido. Peça um novo link ao responsável.');
+      return mostrarErro('Link de operação inválido. Peça um novo link aos bombeiros.');
     }
     if (!estado.info.ativa) {
       return finalizar('encerrada');
@@ -121,7 +121,6 @@
     $('ini-operacao').textContent = estado.info.operacao;
     var permiteMilitar = (estado.info.tipos_permitidos || []).indexOf('militar') !== -1;
     $('ini-tipo-escolha').hidden = !permiteMilitar;
-    $('ini-tipo-fixo').hidden = permiteMilitar;
 
     var salvo = C.local.ler(CHAVE_PART, null);
     if (salvo && salvo.token === estado.token) {
@@ -132,7 +131,7 @@
         var r = document.querySelector('input[name="tipo"][value="' + salvo.tipo + '"]');
         if (r) r.checked = true;
       }
-      if (salvo.ativo) $('btn-iniciar').textContent = 'CONTINUAR RASTREAMENTO';
+      if (salvo.ativo) $('btn-iniciar').textContent = 'CONTINUAR';
       var fila = C.local.ler(CHAVE_FILA, null);
       if (fila && fila.participante_id === salvo.participante_id && Array.isArray(fila.pontos)) {
         estado.fila = fila.pontos;
@@ -153,9 +152,8 @@
     $('form-inicio').addEventListener('submit', aoIniciar);
     $('btn-saida').addEventListener('click', aoSolicitarSaida);
     $('form-msg').addEventListener('submit', aoEnviarMensagem);
-    document.querySelectorAll('input[name="cat"]').forEach(function (r) {
-      r.addEventListener('change', function () { $('msg-local').checked = this.value !== 'MENSAGEM'; });
-    });
+    $('btn-encontrei').addEventListener('click', abrirEncontrei);
+    $('btn-sos').addEventListener('click', pedirAjuda);
     $('foto-camera').addEventListener('change', function (ev) { aoEscolherFoto(ev, true); });
     $('foto-galeria').addEventListener('change', function (ev) { aoEscolherFoto(ev, false); });
     $('ini-cpf').addEventListener('input', function () { this.value = mascararCpf(this.value); });
@@ -473,7 +471,7 @@
         return;
       }
       if (estado.saidaSolicitadaEm && !r.saida_solicitada_em) {
-        UI.aviso('O responsável pediu para você continuar na operação. O rastreamento segue ativo.', 'erro', 9000);
+        UI.aviso('Os bombeiros pediram para você continuar na busca.', 'erro', 9000);
         chamarAtencao();
       }
       estado.saidaSolicitadaEm = r.saida_solicitada_em || null;
@@ -588,7 +586,7 @@
     }
     var m = pend[0];
     if (estado.alertaAtual === m.id && !caixa.hidden) {
-      $('alerta-fila').textContent = pend.length > 1 ? 'Mais ' + (pend.length - 1) + ' mensagem(ns) aguardando confirmação' : '';
+      $('alerta-fila').textContent = pend.length > 1 ? 'Mais ' + (pend.length - 1) + ' mensagem(ns) dos bombeiros' : '';
       return;
     }
     estado.alertaAtual = m.id;
@@ -596,17 +594,16 @@
     caixa.className = 'alerta-msg alerta-' + tipo.classe;
     $('alerta-tit').textContent = tipo.titulo;
     $('alerta-texto').textContent = m.texto || tipo.padrao;
-    $('alerta-meta').textContent = 'Enviada por ' + (m.remetente_nome || 'responsável da operação') +
-      ' · ' + (estado.part ? estado.part.operacao : '') + ' · às ' + C.hora(m.criada_em);
+    $('alerta-meta').textContent = 'Bombeiros · às ' + C.hora(m.criada_em, false);
     var botoes = $('alerta-botoes');
     botoes.innerHTML = '';
     if (m.tipo === 'CONFIRME') {
       botoes.appendChild(UI.el('button', { classe: 'btn btn-ok btn-gigante', type: 'button', texto: 'ESTOU BEM', onclick: function () { confirmarMensagem(m.id, 'ESTOU_BEM'); } }));
       botoes.appendChild(UI.el('button', { classe: 'btn btn-primario btn-gigante', type: 'button', texto: 'PRECISO DE AJUDA', onclick: function () { confirmarMensagem(m.id, 'PRECISO_AJUDA'); } }));
     } else {
-      botoes.appendChild(UI.el('button', { classe: 'btn btn-escuro btn-gigante', type: 'button', texto: 'CONFIRMAR RECEBIMENTO', onclick: function () { confirmarMensagem(m.id, 'CIENTE'); } }));
+      botoes.appendChild(UI.el('button', { classe: 'btn btn-escuro btn-gigante', type: 'button', texto: 'ENTENDI', onclick: function () { confirmarMensagem(m.id, 'CIENTE'); } }));
     }
-    $('alerta-fila').textContent = pend.length > 1 ? 'Mais ' + (pend.length - 1) + ' mensagem(ns) aguardando confirmação' : '';
+    $('alerta-fila').textContent = pend.length > 1 ? 'Mais ' + (pend.length - 1) + ' mensagem(ns) dos bombeiros' : '';
     caixa.hidden = false;
     var b = botoes.querySelector('button');
     if (b) b.focus();
@@ -621,8 +618,8 @@
     mostrarProximoAlerta();
     renderizarHistorico();
     var ok = await enviarConfirmacao(id, resposta);
-    if (ok) UI.aviso(resposta === 'PRECISO_AJUDA' ? 'Pedido de ajuda enviado à equipe.' : 'Confirmação enviada.', 'ok');
-    else UI.aviso('Sem conexão: a confirmação será enviada automaticamente quando a internet voltar.', 'erro', 7000);
+    if (ok) UI.aviso(resposta === 'PRECISO_AJUDA' ? 'Pedido de ajuda enviado aos bombeiros.' : 'Resposta enviada.', 'ok');
+    else UI.aviso('Sem internet: a resposta vai ser enviada quando o sinal voltar.', 'erro', 7000);
   }
 
   async function enviarConfirmacao(id, resposta) {
@@ -657,10 +654,11 @@
 
   var CATEGORIAS = {
     MENSAGEM: 'Mensagem', PISTA: 'Possível pista', VESTIGIO: 'Vestígio',
-    OBJETO: 'Objeto encontrado', OBSTACULO: 'Obstáculo', OUTRO: 'Outro',
+    OBJETO: 'Objeto', OBSTACULO: 'Obstáculo', OUTRO: 'Outra coisa', AJUDA: 'Pedido de ajuda',
   };
 
-  // Conversa com a equipe: o que os responsáveis enviaram e o que eu enviei.
+  // Conversa: o que os bombeiros enviaram (à esquerda) e o que eu enviei (à direita).
+  // Só o essencial: quem, o texto e a hora.
   function renderizarHistorico() {
     var ul = $('hist-msgs');
     var itens = Array.from(estado.mensagens.values()).map(function (m) { return { m: m, t: C.paraMs(m.criada_em) }; });
@@ -674,43 +672,35 @@
       var m = it.m;
       if (m.direcao === 'entrada') { ul.appendChild(bolhaMinha(null, m)); return; }
       var tipo = C.TIPOS_MENSAGEM[m.tipo] || C.TIPOS_MENSAGEM.PERSONALIZADA;
-      var confirmada = m.confirmada_em || estado.confirmadasLocal.has(m.id);
-      var estadoTxt = m.confirmada_em
-        ? 'Confirmada às ' + C.hora(m.confirmada_em, false) + (m.resposta ? ' · ' + (C.RESPOSTAS[m.resposta] || m.resposta) : '')
-        : confirmada ? 'Confirmação aguardando internet' : 'AGUARDANDO SUA CONFIRMAÇÃO';
-      var li = UI.el('li', { classe: 'bolha bolha-equipe' + (confirmada ? '' : ' pendente') }, [
-        UI.el('div', { classe: 'bolha-topo', texto: (m.remetente_nome || 'Responsável') + ' · ' + tipo.titulo }),
+      var respondida = m.confirmada_em || estado.confirmadasLocal.has(m.id);
+      var li = UI.el('li', { classe: 'bolha bolha-equipe' + (respondida ? '' : ' pendente') }, [
+        UI.el('div', { classe: 'bolha-topo', texto: 'Bombeiros' + (m.tipo !== 'PERSONALIZADA' ? ' · ' + tipo.titulo : '') }),
         UI.el('div', { classe: 'bolha-texto', texto: m.texto || tipo.padrao }),
-        UI.el('div', { classe: 'bolha-meta', texto: C.hora(m.criada_em, false) + ' · ' + estadoTxt }),
+        UI.el('div', { classe: 'bolha-meta', texto: C.hora(m.criada_em, false) }),
       ]);
-      if (!confirmada) {
+      if (!respondida) {
         li.appendChild(UI.el('button', {
-          classe: 'btn btn-pequeno btn-escuro', type: 'button', texto: 'Abrir e confirmar',
+          classe: 'btn btn-pequeno btn-escuro', type: 'button', texto: 'Responder',
           onclick: function () { estado.alertaAtual = null; mostrarProximoAlerta(); },
         }));
       }
       ul.appendChild(li);
     });
     if (noFim || itens.length < 4) ul.scrollTop = ul.scrollHeight;
+    atualizarAjudaPedida();
   }
 
   function bolhaMinha(local, m) {
     var d = m || local;
     var cat = d.categoria || 'MENSAGEM';
-    var status;
-    if (m) {
-      status = m.lida_em ? 'Lida por ' + (m.lida_por_nome || 'responsável') + ' às ' + C.hora(m.lida_em, false)
-        : 'Enviada às ' + C.hora(m.criada_em, false);
-    } else {
-      status = local.erro ? 'Não enviada: ' + local.erro : 'Aguardando internet para enviar…';
-    }
-    var li = UI.el('li', { classe: 'bolha bolha-minha' + (m ? '' : ' na-fila') + (cat !== 'MENSAGEM' ? ' relato' : '') }, [
+    var meta = m ? C.hora(m.criada_em, false) : (local.erro ? 'Não enviada' : 'Esperando internet…');
+    var li = UI.el('li', { classe: 'bolha bolha-minha' + (m ? '' : ' na-fila') + (cat !== 'MENSAGEM' ? ' relato' : '') + (cat === 'AJUDA' ? ' sos' : '') }, [
       cat !== 'MENSAGEM' ? UI.el('div', { classe: 'bolha-topo', texto: CATEGORIAS[cat] || cat }) : null,
       UI.el('div', { classe: 'bolha-texto', texto: d.texto }),
-      UI.el('div', { classe: 'bolha-meta', texto: status + (d.lat != null ? ' · com localização' + (d.precisao != null || d.prec != null ? ' (' + C.precisao(d.precisao != null ? d.precisao : d.prec) + ')' : '') : '') }),
+      UI.el('div', { classe: 'bolha-meta', texto: meta }),
     ]);
     if (local && local.erro) {
-      li.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Descartar',
+      li.appendChild(UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Apagar',
         onclick: function () { estado.msgPendentes = estado.msgPendentes.filter(function (x) { return x !== local; }); salvarMsgPendentes(); renderizarHistorico(); } }));
     }
     return li;
@@ -750,6 +740,32 @@
     C.local.gravar(CHAVE_MSGS, { participante_id: estado.part.participante_id, itens: estado.msgPendentes });
   }
 
+  // Posição sem esperar o GPS: a leitura do rastreamento dos últimos 2 min, se houver.
+  function posicaoRecente() {
+    var l = estado.ultimaLeitura;
+    if (l && l.prec != null && l.prec <= 100 && Date.now() - l.recebidaEm < 120000) {
+      return { ok: true, lat: l.lat, lng: l.lng, prec: l.prec, t: l.recebidaEm };
+    }
+    return null;
+  }
+
+  // Envia aos bombeiros (mensagem, relato ou pedido de ajuda). A localização vai
+  // junto automaticamente quando existir; nunca é inventada.
+  async function enviarAosBombeiros(categoria, texto, posicao) {
+    var item = { client_id: C.uuid(), categoria: categoria, texto: String(texto).slice(0, 1000), criada_local: Date.now() };
+    if (posicao && posicao.ok) {
+      item.lat = Math.round(posicao.lat * 1e7) / 1e7;
+      item.lng = Math.round(posicao.lng * 1e7) / 1e7;
+      item.prec = posicao.prec == null ? null : Math.round(posicao.prec * 10) / 10;
+      item.t = posicao.t;
+    }
+    estado.msgPendentes.push(item);
+    salvarMsgPendentes();
+    renderizarHistorico();
+    var ok = await enviarMensagemPendente(item);
+    return { ok: ok, item: item };
+  }
+
   async function aoEnviarMensagem(ev) {
     ev.preventDefault();
     if (!estado.part || estado.finalizado) return;
@@ -759,36 +775,100 @@
       $('msg-texto').focus();
       return;
     }
-    var marcado = document.querySelector('input[name="cat"]:checked');
-    var item = { client_id: C.uuid(), categoria: marcado ? marcado.value : 'MENSAGEM', texto: texto.slice(0, 1000), criada_local: Date.now() };
     var btn = $('btn-enviar-msg');
     btn.disabled = true;
     try {
-      if ($('msg-local').checked) {
-        btn.textContent = 'LOCALIZANDO…';
-        var pos = await obterPosicaoAgora();
-        if (pos.ok) {
-          item.lat = Math.round(pos.lat * 1e7) / 1e7;
-          item.lng = Math.round(pos.lng * 1e7) / 1e7;
-          item.prec = pos.prec == null ? null : Math.round(pos.prec * 10) / 10;
-          item.t = pos.t;
-        } else {
-          UI.aviso('Não foi possível obter sua localização (' + pos.motivo + '). A mensagem vai sem coordenadas.', 'erro', 7000);
-        }
-      }
-      estado.msgPendentes.push(item);
-      salvarMsgPendentes();
       $('msg-texto').value = '';
-      var padrao = document.querySelector('input[name="cat"][value="MENSAGEM"]');
-      if (padrao) { padrao.checked = true; $('msg-local').checked = false; }
-      renderizarHistorico();
-      var ok = await enviarMensagemPendente(item);
-      if (ok) UI.aviso(item.categoria === 'MENSAGEM' ? 'Mensagem enviada à equipe.' : 'Relato enviado à equipe.', 'ok');
-      else if (!item.erro) UI.aviso('Sem conexão: a mensagem será enviada quando a internet voltar.', 'erro', 7000);
+      var r = await enviarAosBombeiros('MENSAGEM', texto, posicaoRecente());
+      if (r.ok) UI.aviso('Mensagem enviada aos bombeiros.', 'ok');
+      else if (!r.item.erro) UI.aviso('Sem internet: a mensagem vai ser enviada quando o sinal voltar.', 'erro', 7000);
     } finally {
       btn.disabled = false;
-      btn.textContent = 'ENVIAR';
     }
+  }
+
+  // "Encontrei algo": escolhe o que é, escreve (se quiser) e envia com a localização.
+  function abrirEncontrei() {
+    if (!estado.part || estado.finalizado) return;
+    var opcoes = [
+      ['PISTA', 'Possível pista', 'pegada, rastro, roupa, sinal de passagem'],
+      ['OBJETO', 'Objeto', 'mochila, celular, documento, calçado'],
+      ['VESTIGIO', 'Vestígio', 'sangue, fogueira, restos de comida'],
+      ['OBSTACULO', 'Obstáculo', 'rio, barranco, mata fechada, trilha bloqueada'],
+      ['OUTRO', 'Outra coisa', 'qualquer informação importante'],
+    ];
+    var grade = UI.el('div', { classe: 'encontrei-opcoes' });
+    var fechar = UI.abrirModal(UI.el('div', { classe: 'encontrei' }, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'O que você encontrou?' }),
+      grade,
+      UI.el('div', { classe: 'modal-acoes' }, [UI.el('button', { classe: 'btn', type: 'button', texto: 'Cancelar', onclick: function () { fechar(); } })]),
+    ]));
+    opcoes.forEach(function (o) {
+      grade.appendChild(UI.el('button', { classe: 'opcao-encontrei', type: 'button', 'data-cat': o[0], onclick: function () { fechar(); detalharEncontrei(o); } }, [
+        UI.el('strong', { texto: o[1] }), UI.el('span', { texto: o[2] }),
+      ]));
+    });
+  }
+
+  function detalharEncontrei(o) {
+    var area = UI.el('textarea', { classe: 'campo', id: 'encontrei-texto', rows: '2', maxlength: '1000', placeholder: 'Ex.: mochila azul perto da cerca' });
+    var btnEnviar = UI.el('button', { classe: 'btn btn-primario btn-gigante', type: 'button', id: 'encontrei-enviar', texto: 'ENVIAR AOS BOMBEIROS' });
+    var inFoto = UI.el('input', { classe: 'sr-only', type: 'file', accept: 'image/*', capture: 'environment', id: 'encontrei-foto' });
+    var comFoto = UI.el('label', { classe: 'btn btn-escuro btn-gigante' }, [UI.el('span', { 'aria-hidden': 'true', texto: '📷 ' }), 'ENVIAR E TIRAR FOTO', inFoto]);
+    var fechar = UI.abrirModal(UI.el('div', null, [
+      UI.el('h2', { id: 'modal-titulo', texto: o[1] }),
+      UI.el('p', { classe: 'ajuda', texto: 'Sua localização vai junto. Se quiser, explique em poucas palavras:' }),
+      area,
+      UI.el('div', { classe: 'encontrei-botoes' }, [btnEnviar, comFoto]),
+      UI.el('div', { classe: 'modal-acoes' }, [UI.el('button', { classe: 'btn', type: 'button', texto: 'Voltar', onclick: function () { fechar(); abrirEncontrei(); } })]),
+    ]), { fecharNoFundo: false });
+    var enviado = false;
+    async function enviar() {
+      if (enviado) return;
+      enviado = true;
+      var texto = area.value.trim() || o[1] + ' encontrado(a) aqui';
+      var pos = posicaoRecente() || await obterPosicaoAgora();
+      if (!pos.ok) UI.aviso('Sem GPS agora: o aviso vai sem a localização.', 'erro', 6000);
+      var r = await enviarAosBombeiros(o[0], texto, pos);
+      if (r.ok) UI.aviso('Os bombeiros receberam: ' + o[1] + '.', 'ok', 5000);
+      else if (!r.item.erro) UI.aviso('Sem internet: o aviso vai ser enviado quando o sinal voltar.', 'erro', 7000);
+    }
+    btnEnviar.addEventListener('click', function () { fechar(); enviar(); });
+    // A foto abre logo em seguida; o aviso é enviado na hora.
+    inFoto.addEventListener('change', function (ev) {
+      var legenda = area.value.trim() || o[1];
+      fechar();
+      enviar();
+      aoEscolherFoto(ev, true, legenda);
+    });
+  }
+
+  // Pedido de ajuda: um toque + confirmação. Vai com a localização e fica na fila sem internet.
+  async function pedirAjuda() {
+    if (!estado.part || estado.finalizado) return;
+    var r = await UI.confirmar({
+      titulo: 'Pedir ajuda aos bombeiros?',
+      texto: 'Os bombeiros vão receber um alerta com a sua localização.',
+      ok: 'SIM, PRECISO DE AJUDA',
+      cancelar: 'Cancelar',
+      perigo: true,
+    });
+    if (!r) return;
+    var pos = posicaoRecente() || await obterPosicaoAgora();
+    var env = await enviarAosBombeiros('AJUDA', 'PRECISO DE AJUDA', pos);
+    if (env.ok) UI.aviso('Pedido de ajuda enviado. Os bombeiros receberam sua localização.', 'ok', 8000);
+    else if (!env.item.erro) UI.aviso('Sem internet: o pedido de ajuda vai ser enviado assim que o sinal voltar. Em emergência, ligue 193.', 'erro', 10000);
+    atualizarAjudaPedida();
+  }
+
+  // Mostra o cartão "Pedido de ajuda enviado" por 30 min após o último pedido.
+  function atualizarAjudaPedida() {
+    var ultimo = 0;
+    estado.mensagens.forEach(function (m) { if (m.direcao === 'entrada' && m.categoria === 'AJUDA') ultimo = Math.max(ultimo, C.paraMs(m.criada_em)); });
+    estado.msgPendentes.forEach(function (x) { if (x.categoria === 'AJUDA' && !x.erro) ultimo = Math.max(ultimo, x.criada_local); });
+    var mostrar = ultimo && Date.now() - ultimo < 30 * 60000;
+    $('ajuda-pedida').hidden = !mostrar;
+    if (mostrar) $('ajuda-hora').textContent = 'às ' + C.hora(ultimo, false);
   }
 
   async function enviarMensagemPendente(item) {
@@ -874,7 +954,7 @@
     renderizarFotos();
   }
 
-  async function aoEscolherFoto(ev, daCamera) {
+  async function aoEscolherFoto(ev, daCamera, legenda) {
     var arquivo = ev.target.files && ev.target.files[0];
     ev.target.value = '';
     if (!arquivo || !estado.part || estado.finalizado) return;
@@ -882,6 +962,8 @@
     if (!f || !estado.part || estado.finalizado) return;
     // Prévia: confirma ou cancela antes de salvar (Fotos.abrirPrevia).
     window.Fotos.abrirPrevia(f, {
+      simples: true,
+      legenda: legenda || '',
       obterPosicao: obterPosicaoAgora,
       aoSalvar: async function (d) {
         var item = Object.assign(d, {
@@ -913,7 +995,7 @@
         try {
           await enviarFoto(it);
           await apagarFotoLocal(it.id);
-          UI.aviso('Foto enviada à equipe.', 'ok');
+          UI.aviso('Foto enviada aos bombeiros.', 'ok');
         } catch (e) {
           if (tratarErroFatal(e)) return;
           it.estado = e.rede ? 'fila' : 'erro';
@@ -921,10 +1003,10 @@
           await guardarFotoLocal(it);
           renderizarFotos();
           if (e.rede) {
-            UI.aviso('Sem conexão: a foto ficou guardada no celular e será enviada depois.', 'erro', 7000);
+            UI.aviso('Sem internet: a foto ficou guardada e vai ser enviada quando o sinal voltar.', 'erro', 7000);
             break;
           }
-          UI.aviso('Falha ao enviar a foto: ' + e.message, 'erro', 8000);
+          UI.aviso('A foto não foi enviada: ' + e.message, 'erro', 8000);
         }
       }
     } finally {
@@ -955,6 +1037,7 @@
     renderizarFotos();
   }
 
+  // Suas fotos: miniaturas. Na fila mostra "esperando internet"; se falhar, tentar de novo ou apagar.
   function renderizarFotos() {
     var ul = $('fotos-minhas');
     if (!ul) return;
@@ -962,34 +1045,26 @@
     var locais = Array.from(estado.fotosLocais.values()).sort(function (a, b) { return b.criada_local - a.criada_local; });
     locais.forEach(function (it) {
       if (!it.urlPrevia) it.urlPrevia = URL.createObjectURL(it.blob);
-      var st = it.estado === 'enviando' ? 'Enviando…' : it.estado === 'erro' ? 'Falhou: ' + (it.erro || 'erro') : 'Na fila · aguardando internet';
       var li = UI.el('li', { classe: 'foto-item ' + (it.estado === 'erro' ? 'erro' : 'fila') }, [
-        UI.el('img', { src: it.urlPrevia, alt: it.legenda || 'Foto na fila' }),
-        UI.el('div', null, [
-          UI.el('strong', { texto: it.legenda || 'Foto' }),
-          UI.el('div', { classe: 'muted', texto: st }),
-          UI.el('div', { classe: 'muted', texto: it.lat != null ? 'Com localização' : 'Sem localização' }),
-        ]),
+        UI.el('img', { src: it.urlPrevia, alt: it.legenda || 'Foto' }),
+        UI.el('span', { classe: 'foto-selo', texto: it.estado === 'enviando' ? 'Enviando…' : it.estado === 'erro' ? 'Não enviada' : 'Esperando internet' }),
       ]);
       if (it.estado === 'erro' || it.estado === 'fila') {
         li.appendChild(UI.el('div', { classe: 'foto-acoes' }, [
-          UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Tentar agora', onclick: function () { it.estado = 'fila'; it.erro = null; processarFilaFotos(); } }),
-          UI.el('button', { classe: 'btn btn-pequeno btn-perigo', type: 'button', texto: 'Descartar', onclick: async function () { await apagarFotoLocal(it.id); renderizarFotos(); } }),
+          UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Tentar', onclick: function () { it.estado = 'fila'; it.erro = null; processarFilaFotos(); } }),
+          UI.el('button', { classe: 'btn btn-pequeno btn-perigo', type: 'button', texto: 'Apagar', onclick: async function () { await apagarFotoLocal(it.id); renderizarFotos(); } }),
         ]));
       }
       ul.appendChild(li);
     });
     estado.minhasFotos.forEach(function (f) {
       var u = estado.urlsFotos.get(f.caminho);
-      ul.appendChild(UI.el('li', { classe: 'foto-item' }, [
+      ul.appendChild(UI.el('li', { classe: 'foto-item enviada' }, [
         u ? UI.el('img', { src: u.url, alt: f.legenda || 'Foto enviada' }) : UI.el('div', { classe: 'foto-sem-previa', texto: 'Foto' }),
-        UI.el('div', null, [
-          UI.el('strong', { texto: f.legenda || 'Foto' }),
-          UI.el('div', { classe: 'muted', texto: 'Enviada às ' + C.hora(f.registrada_em, false) }),
-          UI.el('div', { classe: 'muted', texto: f.lat != null ? 'Com localização (' + C.precisao(f.precisao) + ')' : 'Sem localização' }),
-        ]),
+        UI.el('span', { classe: 'foto-selo ok', texto: '✓ Enviada' }),
       ]));
     });
+    $('fotos-civil').hidden = !ul.children.length;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1032,8 +1107,8 @@
       var m = pend[0];
       var tipo = m ? (C.TIPOS_MENSAGEM[m.tipo] || C.TIPOS_MENSAGEM.PERSONALIZADA) : null;
       try {
-        estado.swReg.showNotification(tipo ? tipo.titulo : 'Nova mensagem', {
-          body: m ? (m.texto || tipo.padrao) : 'Abra a página da operação.',
+        estado.swReg.showNotification('Bombeiros: ' + (tipo && m.tipo !== 'PERSONALIZADA' ? tipo.titulo : 'nova mensagem'), {
+          body: m ? (m.texto || tipo.padrao) : 'Abra a página da busca.',
           tag: 'sar-msg',
           renotify: true,
           requireInteraction: true,
@@ -1060,7 +1135,7 @@
     if (!window.Notification) return;
     Notification.requestPermission().then(function (p) {
       atualizarNotifBotao();
-      if (p === 'granted') UI.aviso('Alertas ativados. Mesmo assim, mantenha esta página aberta.', 'ok');
+      if (p === 'granted') UI.aviso('Pronto. Mesmo assim, deixe esta tela aberta.', 'ok');
     });
   }
 
@@ -1089,8 +1164,7 @@
   function avisarPausa(ms) {
     var min = Math.max(1, Math.round(ms / 60000));
     var caixa = $('aviso-fundo');
-    caixa.textContent = 'Atenção: o celular pausou esta página por cerca de ' + min + ' min (tela bloqueada ou outro aplicativo). ' +
-      'Nesse período sua posição pode não ter sido registrada. Mantenha esta página aberta e a tela ligada.';
+    caixa.textContent = 'O celular parou de enviar sua localização por cerca de ' + min + ' min. Deixe esta tela aberta e o celular desbloqueado.';
     caixa.hidden = false;
   }
 
@@ -1137,10 +1211,10 @@
   async function aoSolicitarSaida() {
     if (estado.saidaSolicitadaEm) return;
     var r = await UI.confirmar({
-      titulo: 'Solicitar encerramento?',
-      texto: 'O responsável pela operação vai receber seu pedido. O rastreamento só termina quando ele liberar sua saída; até lá, sua localização continua sendo enviada.',
-      campo: { rotulo: 'Motivo (opcional)', valor: '', max: 200 },
-      ok: 'Enviar pedido',
+      titulo: 'Quer sair da busca?',
+      texto: 'Os bombeiros vão receber seu pedido e liberar sua saída. Até lá, deixe esta tela aberta.',
+      campo: { rotulo: 'Motivo (se quiser)', valor: '', max: 200 },
+      ok: 'Pedir para sair',
       cancelar: 'Voltar',
     });
     if (!r) return;
@@ -1150,9 +1224,9 @@
       var resp = await C.rpc('solicitar_saida', { p_participante: estado.part.participante_id, p_motivo: r.texto || '' });
       estado.saidaSolicitadaEm = resp && resp.saida_solicitada_em ? resp.saida_solicitada_em : new Date().toISOString();
       marcarSucesso();
-      UI.aviso('Pedido enviado. Aguarde a liberação do responsável.', 'ok', 6000);
+      UI.aviso('Pedido enviado. Aguarde os bombeiros liberarem.', 'ok', 6000);
     } catch (e) {
-      if (!tratarErroFatal(e)) UI.aviso(e.rede ? 'Sem conexão: não foi possível enviar o pedido. Tente de novo.' : e.message, 'erro', 7000);
+      if (!tratarErroFatal(e)) UI.aviso(e.rede ? 'Sem internet: não deu para enviar o pedido. Tente de novo.' : e.message, 'erro', 7000);
     } finally {
       btn.disabled = false;
       atualizarUI();
@@ -1189,10 +1263,10 @@
     estado.fotosLocais.forEach(function (it, id) { apagarFotoLocal(id); });
     if (naFila) UI.aviso(naFila + ' foto(s) que ainda não tinham sido enviadas foram descartadas.', 'erro', 8000);
     var textos = {
-      encerrada: ['Operação encerrada', 'Esta operação foi encerrada pelo responsável. Obrigado pela sua participação.'],
-      removido: ['Participação encerrada', 'O responsável encerrou a sua participação nesta operação.'],
-      liberado: ['Saída liberada', 'O responsável liberou a sua saída. O rastreamento foi encerrado. Obrigado pela sua participação!'],
-      inexistente: ['Participação encerrada', 'A operação foi excluída ou os dados dela foram apagados pelo responsável. Este link não funciona mais.'],
+      encerrada: ['Busca encerrada', 'Os bombeiros encerraram esta busca. Obrigado pela sua ajuda!'],
+      removido: ['Participação encerrada', 'Os bombeiros encerraram a sua participação nesta busca.'],
+      liberado: ['Saída liberada', 'Os bombeiros liberaram a sua saída. Obrigado pela sua ajuda!'],
+      inexistente: ['Participação encerrada', 'A operação foi excluída pelos bombeiros. Este link não funciona mais.'],
     };
     var t = textos[motivo] || textos.encerrada;
     $('fim-titulo').textContent = t[0];
@@ -1203,71 +1277,41 @@
   /* ------------------------------------------------------------------ */
   /* Atualização da interface                                             */
   /* ------------------------------------------------------------------ */
-  function caixaEstado(id, classe) {
-    var e = $(id);
-    e.classList.remove('ok', 'alerta', 'perigo');
-    if (classe) e.classList.add(classe);
-  }
-
   function atualizarUI() {
     if (!estado.part || estado.finalizado) return;
+    $('st-nome').textContent = estado.part.nome + ' · ' + estado.part.operacao;
 
-    $('st-nome').textContent = estado.part.nome + (estado.part.tipo === 'militar' ? ' · MILITAR' : ' · CIVIL');
-    $('st-op').textContent = 'Operação: ' + estado.part.operacao;
-
-    // GPS
-    var gpsVal, gpsSub = '', gpsClasse;
-    var leit = estado.ultimaLeitura;
-    if (!estado.rastreando) { gpsVal = 'Desligado'; gpsClasse = ''; }
-    else if (estado.gps === 'ok') { gpsVal = 'Ativo'; gpsClasse = 'ok'; }
-    else if (estado.gps === 'fraco') { gpsVal = 'Sinal fraco'; gpsClasse = 'alerta'; }
-    else if (estado.gps === 'negado') { gpsVal = 'Permissão negada'; gpsClasse = 'perigo'; gpsSub = 'Libere a localização nas configurações do navegador.'; }
-    else if (estado.gps === 'indisponivel') { gpsVal = 'Indisponível'; gpsClasse = 'perigo'; gpsSub = 'Ligue a localização (GPS) do celular.'; }
-    else { gpsVal = 'Procurando sinal…'; gpsClasse = 'alerta'; gpsSub = 'Se possível, vá para um local aberto.'; }
-    if (estado.rastreando && leit && !gpsSub) gpsSub = C.precisao(leit.prec) + ' · leitura ' + C.idade(leit.recebidaEm, Date.now());
-    $('st-gps').textContent = gpsVal;
-    $('st-gps-sub').textContent = gpsSub;
-    caixaEstado('cx-gps', gpsClasse);
-
-    // Internet
     var net = estadoInternet();
     var pend = estado.fila.length;
-    var netVal = { ok: 'Conectado', offline: 'Sem internet', falha: 'Reconectando…', conectando: 'Conectando…' }[net];
-    var netSub = pend ? pend + ' posição(ões) guardada(s) no aparelho' : (net === 'ok' ? 'Envio em dia' : '');
-    $('st-net').textContent = netVal;
-    $('st-net-sub').textContent = netSub;
-    caixaEstado('cx-net', net === 'ok' ? 'ok' : (net === 'offline' ? 'perigo' : 'alerta'));
-
-    // Último envio
-    if (estado.ultimoEnviadoT) {
-      $('st-envio').textContent = C.hora(estado.ultimoEnviadoT);
-      $('st-envio-sub').textContent = C.idade(estado.ultimoEnviadoT, Date.now()) + (pend ? ' · ' + pend + ' aguardando envio' : '');
-    } else {
-      $('st-envio').textContent = '—';
-      $('st-envio-sub').textContent = pend ? pend + ' aguardando envio' : 'Nenhuma posição enviada ainda';
-    }
-    caixaEstado('cx-envio', '');
-
-    // Faixa principal e botões
-    var faixa = $('faixa');
-    faixa.classList.remove('pausado', 'problema');
+    var cod, titulo, sub;
     if (!estado.rastreando) {
-      faixa.classList.add('pausado');
-      $('faixa-texto').textContent = 'COMPARTILHAMENTO INTERROMPIDO';
+      cod = 'parado'; titulo = 'Localização desligada'; sub = 'Toque em CONTINUAR para voltar a ajudar.';
+    } else if (estado.gps === 'negado') {
+      cod = 'erro'; titulo = 'A localização foi bloqueada';
+      sub = 'Toque no cadeado ao lado do endereço do site e permita a localização.';
+    } else if (estado.gps === 'indisponivel') {
+      cod = 'erro'; titulo = 'O GPS do celular está desligado'; sub = 'Ligue a localização do celular.';
     } else if (estado.gps !== 'ok' && estado.gps !== 'fraco') {
-      faixa.classList.add('problema');
-      $('faixa-texto').textContent = 'RASTREAMENTO ATIVO — SEM GPS';
-    } else if (net !== 'ok') {
-      faixa.classList.add('problema');
-      $('faixa-texto').textContent = 'RASTREAMENTO ATIVO — SEM CONEXÃO';
+      cod = 'sem-gps'; titulo = 'Procurando o sinal de GPS…'; sub = 'Se puder, vá para um lugar aberto, longe de paredes e árvores.';
+    } else if (net === 'offline' || net === 'falha') {
+      cod = 'sem-internet'; titulo = 'Sem internet agora';
+      sub = 'Sua localização está sendo guardada e vai ser enviada quando o sinal voltar.' + (pend ? ' (' + pend + ' guardada' + (pend > 1 ? 's' : '') + ')' : '');
+    } else if (net === 'conectando' && !estado.ultimoEnviadoT) {
+      cod = 'sem-gps'; titulo = 'Conectando com os bombeiros…'; sub = 'Só um instante.';
     } else {
-      $('faixa-texto').textContent = 'RASTREAMENTO ATIVO';
+      cod = 'ok'; titulo = 'Os bombeiros estão vendo onde você está'; sub = 'Deixe esta tela aberta.';
     }
-    // Pedido de encerramento
+    var caixa = $('status-civil');
+    if (caixa.getAttribute('data-estado') !== cod) caixa.setAttribute('data-estado', cod);
+    if ($('status-titulo').textContent !== titulo) $('status-titulo').textContent = titulo;
+    if ($('status-sub').textContent !== sub) $('status-sub').textContent = sub;
+
+    // Pedido de saída
     var pendente = Boolean(estado.saidaSolicitadaEm);
     $('saida-pendente').hidden = !pendente;
     if (pendente) $('saida-hora').textContent = C.hora(estado.saidaSolicitadaEm, false);
     $('btn-saida').hidden = pendente;
+    atualizarAjudaPedida();
   }
 
   iniciar();

@@ -270,19 +270,21 @@
       <aside class="ficha" id="ficha" hidden aria-labelledby="ficha-nome" role="dialog">
         <div class="ficha-cabeca">
           <span id="ficha-simbolo"></span>
-          <h2 id="ficha-nome"></h2>
+          <div class="ficha-titulo">
+            <h2 id="ficha-nome"></h2>
+            <div class="ficha-resumo" id="ficha-resumo"></div>
+          </div>
           <button class="btn btn-pequeno" type="button" id="ficha-fechar" aria-label="Fechar ficha">Fechar</button>
         </div>
         <div class="ficha-corpo">
           <div class="ficha-bloco" id="ficha-alerta" hidden></div>
           <div class="ficha-bloco" id="ficha-saida" hidden></div>
-          <div class="ficha-bloco">
-            <dl class="dados" id="ficha-dados"></dl>
-          </div>
-          <div class="ficha-bloco">
+          <div class="ficha-bloco ficha-rapido">
+            <p class="ficha-pos" id="ficha-pos"></p>
             <div class="acoes-linha">
-              <button class="btn" type="button" id="ficha-centralizar">Centralizar no mapa</button>
+              <button class="btn" type="button" id="ficha-centralizar">Ver no mapa</button>
               <button class="btn btn-trilha" type="button" id="ficha-trilha" aria-pressed="true">Trilha</button>
+              <a class="btn btn-ok" id="ficha-ligar" href="#" hidden>Ligar</a>
             </div>
           </div>
           <div class="ficha-bloco">
@@ -303,7 +305,9 @@
             <h3>Fotos (<span id="ficha-qtd-fotos">0</span>)</h3>
             <ul class="galeria galeria-mini" id="ficha-fotos"></ul>
           </div>
-          <div class="ficha-bloco">
+          <details class="ficha-bloco ficha-mais" id="ficha-mais">
+            <summary>Mais detalhes <span class="muted">— CPF, coordenadas, histórico de posições</span></summary>
+            <dl class="dados" id="ficha-dados"></dl>
             <h3>Histórico de posições (<span id="ficha-qtd-pontos">0</span> pontos)</h3>
             <div class="hist-rolagem">
               <table class="tabela-hist">
@@ -311,10 +315,8 @@
                 <tbody id="ficha-hist"></tbody>
               </table>
             </div>
-          </div>
-          <div class="ficha-bloco">
             <button class="btn btn-perigo btn-pequeno" type="button" id="ficha-remover">Remover participante da operação</button>
-          </div>
+          </details>
         </div>
       </aside>
     </div>

@@ -72,14 +72,26 @@ mapa e toca um alarme no painel.
 - Pela ficha de outro responsável é possível mandar ATENÇÃO, CONFIRME ou mensagem livre; ela chega
   como alerta no painel dele, com confirmação de leitura.
 
-### Comunicação com os participantes (mensagens e relatos)
+### Página do participante (feita para quem não conhece o aplicativo)
 
-- Na página do participante há a seção **Comunicação com a equipe**: ele escreve espontaneamente e
-  escolhe o tipo — **Mensagem**, **Possível pista**, **Vestígio**, **Objeto**, **Obstáculo** ou
-  **Outro**. Para os relatos, "Incluir minha localização" já vem marcado (a posição do GPS vai junto;
-  se não houver GPS, a mensagem segue **sem** coordenadas e ele é avisado).
-- A conversa mostra o histórico nos dois sentidos, com remetente e horário. Mensagens escritas sem
-  internet ficam guardadas no aparelho e são enviadas quando a conexão volta (sem duplicar).
+A tela do civil é propositalmente simples, para quem está nervoso procurando alguém:
+
+- **Um único aviso de situação**, em linguagem comum: "Os bombeiros estão vendo onde você está"
+  (verde), "Procurando o sinal de GPS…", "Sem internet agora — sua localização está sendo guardada"
+  (amarelo) ou "O GPS do celular está desligado" (vermelho). Sem horários, precisão ou contadores técnicos.
+- **Três botões grandes**: **TIRAR FOTO**, **ENCONTREI ALGO** (escolhe Possível pista, Objeto,
+  Vestígio, Obstáculo ou Outra coisa, escreve se quiser e envia — a localização vai junto
+  automaticamente; dá para enviar e já tirar a foto) e **PRECISO DE AJUDA** (um toque + confirmação:
+  os bombeiros recebem alarme com a localização; o celular mostra o atalho **Ligar 193**).
+- **Conversa com os bombeiros**: as mensagens aparecem sempre como **"Bombeiros"** (sem nome do
+  responsável), só com o texto e a hora. O participante escreve e toca ENVIAR; a localização recente
+  vai junto quando existir. Mensagens e avisos escritos sem internet são enviados depois, sozinhos.
+- Fotos: prévia "A foto ficou boa?" sem coordenadas; "Suas fotos" mostra só miniaturas com
+  "✓ Enviada" ou "Esperando internet".
+- Sair: o link discreto **Quero sair da busca** (os bombeiros liberam a saída pelo painel).
+
+### Comunicação com os participantes (no painel)
+
 - No painel, o botão **Mensagens** mostra quantas não foram lidas; a aba do navegador mostra o número
   entre parênteses; um aviso (com som) aparece a cada mensagem nova e, ao tocar, abre a conversa. O
   participante ganha o selo "Mensagem nova" na lista e um ✉ no marcador.
@@ -87,7 +99,14 @@ mapa e toca um alarme no painel.
   (Todas / Relatos / Mensagens), **Ver no mapa** e **Responder**. Abrir a central ou a conversa marca
   como lidas, e o participante vê "Lida por Sgt Fulano às 10:32".
 - **Relatos com localização** aparecem no mapa como marcadores laranja (P = pista, V = vestígio,
-  O = objeto, ! = obstáculo…); tocar abre o texto, o autor, o horário e as coordenadas.
+  O = objeto, ! = obstáculo…); tocar abre o texto, o autor, o horário e as coordenadas. Mensagens
+  comuns não viram marcador (para não poluir o mapa), mas têm **Ver no mapa**.
+- **Preciso de ajuda** (botão do participante): alarme sonoro, aviso vermelho, participante no topo da
+  lista e marcador em destaque, como o "PRECISO DE AJUDA" em resposta ao CONFIRME; na ficha aparece
+  de onde veio, **Ver no mapa** e **Marcar como atendido**.
+- A **ficha** do participante é enxuta: no topo, tipo e situação; logo abaixo "Posição há X s · ±Y m",
+  **Ver no mapa**, **Trilha** e **📞 Ligar**; depois os comandos, a conversa e as fotos. CPF,
+  coordenadas, GPS, histórico de posições e "Remover participante" ficam em **Mais detalhes**.
 - Na **ficha**, a seção **Conversa** junta o que o participante escreveu e as orientações enviadas, com
   um campo de **resposta rápida** (mensagem livre, sem abrir janela). Os comandos (RETORNE, PARE etc.)
   continuam iguais.
@@ -430,11 +449,12 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 14 | No celular do civil, tocar em **Solicitar encerramento** | o painel toca alarme e mostra "Pediu para sair"; o rastreamento continua; ao **Liberar saída**, o celular mostra "Saída liberada" |
 | 15 | Adicionar um segundo responsável em **Equipe** e ligar **Minha posição** nos dois painéis | cada um vê o outro no mapa (losango ciano); mensagem de um para o outro chega como alerta |
 | 16 | Abrir o painel no celular (em pé e deitado) e no tablet | mapa, lista e ficha ficam utilizáveis, sem rolagem lateral |
-| 17 | No celular do civil, escolher **Possível pista**, escrever e enviar | o painel avisa com som, o botão **Mensagens** mostra 1, o marcador laranja aparece no mapa; ao abrir, o civil vê "Lida por …" |
+| 17 | No celular do civil, tocar **ENCONTREI ALGO → Possível pista**, escrever e enviar | o painel avisa com som, o botão **Mensagens** mostra 1, o marcador laranja aparece no mapa; ao abrir, o civil vê "Lida por …" |
 | 18 | Responder pela ficha (**Conversa**) | o civil recebe o alerta em tela cheia e confirma |
 | 19 | No civil, **TIRAR FOTO** → conferir → **SALVAR FOTO** | a câmera aparece no mapa no ponto; tocar abre a foto com autor, horários e coordenadas; **Ampliar** mostra em tela cheia |
 | 20 | Repetir com o celular em modo avião | a foto fica "Na fila"; ao voltar a internet, é enviada sozinha |
 | 21 | **Ferramentas**: trocar camada, ocultar nomes, ocultar a lista | cada opção funciona e o menu fecha; com a lista oculta, o mapa ocupa a tela e **« Participantes** reabre |
+| 22a | No civil, tocar **PRECISO DE AJUDA** e confirmar | o painel dispara alarme e destaca o participante; o celular mostra "Pedido de ajuda enviado" e **Ligar 193** |
 | 22 | Criar uma operação de teste, registrar dados e **Excluir operação** (digitando o nome) | some da lista; o link/QR do participante para de funcionar; no Supabase, **Storage → fotos** não tem mais a pasta da operação |
 
 ### Testes já realizados no desenvolvimento
@@ -451,7 +471,7 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   mensagens e relatos dos participantes (validação, limite, reenvio sem duplicar, "lida por",
   isolamento), fotos (regras do Storage, caminho, registro, links assinados, quem vê) e a exclusão de
   operação (permissões, transação, fila de arquivos, limpeza diária, isolamento das outras operações).
-- **Ponta a ponta (127 verificações)**: no Chromium, com o painel no computador, no tablet e no
+- **Ponta a ponta (135 verificações)**: no Chromium, com o painel no computador, no tablet e no
   celular (em pé e deitado), dois celulares Android simulados com GPS em movimento e dois
   responsáveis na mesma operação. Cobre todos os itens da tabela acima (inclusive mensagens, relatos,
   fotos com e sem localização, galeria, menu Ferramentas, lista oculta e exclusão conferida direto no
