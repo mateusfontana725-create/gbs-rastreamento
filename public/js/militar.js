@@ -1648,7 +1648,9 @@
     var cont = $('ficha-comandos');
     cont.innerHTML = '';
     if (ehEu(p)) return;   // ninguém envia orientação para si mesmo
-    var tipos = tipoDe(p.dados) === 'responsavel' ? COMANDOS_RESPONSAVEL : Object.keys(C.TIPOS_MENSAGEM);
+    // A mensagem livre é escrita no campo logo abaixo; aqui ficam só as orientações prontas.
+    var tipos = (tipoDe(p.dados) === 'responsavel' ? COMANDOS_RESPONSAVEL : Object.keys(C.TIPOS_MENSAGEM))
+      .filter(function (t) { return t !== 'PERSONALIZADA'; });
     tipos.forEach(function (tipo) {
       var t = C.TIPOS_MENSAGEM[tipo];
       cont.appendChild(UI.el('button', {
@@ -1772,7 +1774,7 @@
     // Comandos
     var podeEnviar = est.op.status === 'ativa' && !d.removido && !eu;
     $('ficha-comandos').querySelectorAll('button').forEach(function (b) { b.disabled = !podeEnviar; });
-    $('ficha-cmd-titulo').textContent = ehResp ? 'Mensagem para este responsável' : 'Enviar orientação';
+    $('ficha-cmd-rapidos').hidden = eu || !podeEnviar;
     var aviso = $('ficha-cmd-aviso');
     aviso.hidden = !eu && podeEnviar && (e.cod === 'conectado' || e.cod === 'instavel' || e.cod === 'parado');
     aviso.textContent = eu
@@ -1780,7 +1782,7 @@
       : !podeEnviar ? 'Não é possível enviar mensagens: ' + (d.removido ? 'participante removido.' : 'operação encerrada.')
       : ehResp ? 'Este responsável está com o painel fechado ou sem conexão. A mensagem será entregue quando ele abrir o painel da operação.'
       : 'Atenção: o participante está sem conexão. A mensagem ficará aguardando e só será entregue quando o celular dele reconectar.';
-    $('ficha-msgs-titulo').textContent = eu ? 'Mensagens recebidas' : 'Conversa';
+    $('ficha-msgs-titulo').textContent = eu ? 'Mensagens recebidas' : 'Mensagens';
     renderizarConversa(p);
     var formResp = $('form-resposta');
     formResp.hidden = eu || !podeEnviar;

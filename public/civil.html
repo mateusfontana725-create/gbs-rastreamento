@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#06080a">
   <meta name="robots" content="noindex, nofollow">
   <title>Rastreamento GBS — Participante</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="css/estilos.css">
 </head>
 <body>
@@ -90,11 +91,17 @@
 
         <div class="aviso-fundo" id="aviso-fundo" hidden></div>
 
-        <div class="ajuda-pedida" id="ajuda-pedida" role="status" hidden>
-          <strong>Pedido de ajuda enviado <span id="ajuda-hora"></span>.</strong>
-          Os bombeiros receberam sua localização. Se for seguro, fique onde está.
-          <a class="btn btn-escuro btn-ligar" href="tel:193">Ligar 193</a>
+        <!-- Mapa: você e a equipe de bombeiros -->
+        <div class="mapa-civil-caixa">
+          <div id="mapa-civil" role="region" aria-label="Mapa com a sua posição e a dos bombeiros"></div>
+          <button class="btn btn-pequeno btn-onde-estou" type="button" id="btn-onde-estou" aria-label="Mostrar onde estou no mapa">📍 Onde estou</button>
+          <div class="legenda-civil" aria-hidden="true">
+            <span><i class="lg-eu"></i> Você</span>
+            <span><i class="simbolo simbolo-militar"><span>M</span></i> Bombeiro</span>
+            <span><i class="simbolo simbolo-responsavel"><span>R</span></i> Responsável</span>
+          </div>
         </div>
+        <p class="mapa-civil-nota" id="mapa-nota" hidden></p>
 
         <!-- Ações principais -->
         <div class="acoes-civil">
@@ -107,27 +114,16 @@
             <span class="acao-icone" aria-hidden="true">🔍</span>
             <span class="acao-texto">ENCONTREI ALGO</span>
           </button>
-          <button class="acao acao-sos" type="button" id="btn-sos">
-            <span class="acao-icone" aria-hidden="true">🆘</span>
-            <span class="acao-texto">PRECISO DE AJUDA</span>
+          <button class="acao acao-falar" type="button" id="btn-falar" aria-controls="painel-conversa" aria-expanded="false">
+            <span class="acao-icone" aria-hidden="true">💬</span>
+            <span class="acao-texto">FALAR COM OS BOMBEIROS</span>
+            <span class="contador acao-contador" id="falar-contador" hidden>0</span>
           </button>
         </div>
         <label class="link-galeria">
           ou enviar uma foto da galeria
           <input class="sr-only" type="file" accept="image/*" id="foto-galeria">
         </label>
-
-        <!-- Conversa com os bombeiros -->
-        <section class="conversa-civil" aria-labelledby="tit-conversa">
-          <h2 class="titulo-secao" id="tit-conversa">💬 Conversa com os bombeiros</h2>
-          <ul class="chat-lista" id="hist-msgs" aria-live="polite"></ul>
-          <p class="muted chat-vazio" id="hist-vazio">As mensagens dos bombeiros aparecem aqui. Você também pode escrever para eles.</p>
-          <form class="chat-form" id="form-msg" novalidate>
-            <label class="sr-only" for="msg-texto">Mensagem para os bombeiros</label>
-            <textarea class="campo" id="msg-texto" maxlength="1000" rows="2" placeholder="Escreva para os bombeiros…"></textarea>
-            <button class="btn btn-escuro" type="submit" id="btn-enviar-msg">ENVIAR</button>
-          </form>
-        </section>
 
         <!-- Fotos enviadas (aparece só quando houver) -->
         <section class="fotos-civil" id="fotos-civil" hidden aria-labelledby="tit-fotos">
@@ -158,6 +154,21 @@
     </main>
   </div>
 
+  <!-- Conversa com os bombeiros (abre pelo botão "Falar com os bombeiros") -->
+  <section class="painel-conversa" id="painel-conversa" hidden role="dialog" aria-modal="true" aria-labelledby="tit-conversa">
+    <header class="conversa-cabeca">
+      <button class="btn btn-pequeno" type="button" id="conversa-fechar" aria-label="Voltar para a tela principal">◀ Voltar</button>
+      <h2 id="tit-conversa">Falar com os bombeiros</h2>
+    </header>
+    <ul class="chat-lista" id="hist-msgs" aria-live="polite"></ul>
+    <p class="muted chat-vazio" id="hist-vazio">Nenhuma mensagem ainda. Escreva abaixo para falar com os bombeiros.</p>
+    <form class="chat-form" id="form-msg" novalidate>
+      <label class="sr-only" for="msg-texto">Mensagem para os bombeiros</label>
+      <textarea class="campo" id="msg-texto" maxlength="1000" rows="2" placeholder="Escreva para os bombeiros…"></textarea>
+      <button class="btn btn-escuro" type="submit" id="btn-enviar-msg">ENVIAR</button>
+    </form>
+  </section>
+
   <!-- Alerta de mensagem recebida -->
   <div id="alerta-msg" class="alerta-msg" hidden role="alertdialog" aria-modal="true" aria-labelledby="alerta-tit" aria-describedby="alerta-texto">
     <div class="alerta-cabeca">
@@ -178,6 +189,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o" crossorigin="anonymous"></script>
   <script src="js/comunicacao.js"></script>
   <script src="js/interface.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="js/fotos.js"></script>
   <script src="js/civil.js"></script>
 </body>

@@ -1245,3 +1245,73 @@ body.lateral-oculta .ficha { right: 0; width: min(420px, 100%); }
 .ficha-mais h3 { margin-top: 16px; }
 .ficha-mais #ficha-remover { margin-top: 16px; }
 .ficha .comandos .btn { min-height: 46px; }
+
+/* Ficha: "Mensagens" reúne histórico, orientações rápidas e envio */
+.ficha-mensagens .conversa { margin-bottom: 10px; }
+.cmd-rapidos { border-top: 1px solid var(--borda); padding-top: 10px; }
+.cmd-rapidos-rotulo { display: block; font-size: .78rem; font-weight: 700; color: var(--texto-3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.comandos-compactos { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.ficha .comandos-compactos .btn { min-height: 40px; padding: 0 6px; font-size: .82rem; }
+.ficha-mensagens .resposta-rapida { margin-top: 10px; }
+@media (max-width: 360px) { .comandos-compactos { grid-template-columns: 1fr 1fr; } }
+@media (pointer: coarse) { .ficha .comandos-compactos .btn { min-height: 44px; } }
+
+/* =====================================================================
+ * PÁGINA DO PARTICIPANTE — MAPA E CONVERSA EM JANELA PRÓPRIA
+ * ===================================================================== */
+.mapa-civil-caixa { position: relative; margin-bottom: 12px; border-radius: 12px; overflow: hidden; border: 2px solid var(--borda-forte); }
+#mapa-civil { height: 38vh; height: 38dvh; min-height: 220px; max-height: 420px; background: #0e1318; }
+.btn-onde-estou {
+  position: absolute; z-index: 1000; top: 10px; right: 10px; min-height: 40px;
+  background: rgba(18, 23, 28, .94); text-transform: none; letter-spacing: 0; font-family: var(--fonte); font-weight: 700;
+}
+.legenda-civil {
+  position: absolute; z-index: 1000; left: 8px; bottom: 22px; display: flex; gap: 10px; flex-wrap: wrap;
+  padding: 4px 8px; border-radius: 6px; background: rgba(6, 8, 10, .85); font-size: .78rem; font-weight: 700; color: var(--texto);
+  pointer-events: none;
+}
+.legenda-civil span { display: inline-flex; align-items: center; gap: 5px; }
+.legenda-civil .simbolo { width: 14px; height: 14px; font-size: 8px; border-width: 1.5px; font-style: normal; }
+.legenda-civil .simbolo-responsavel { width: 11px; height: 11px; margin: 0 2px; }
+.lg-eu { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #3b82f6; border: 2px solid #fff; }
+.mapa-civil-nota { margin: -6px 2px 12px; font-size: .88rem; color: var(--texto-3); }
+/* Você: ponto azul (padrão dos aplicativos de mapa) */
+.mk-eu-wrap { background: none; border: 0; }
+.mk-eu {
+  position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%;
+  background: #3b82f6; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(0, 0, 0, .6), 0 0 0 8px rgba(59, 130, 246, .3);
+}
+.mk-eu-rotulo {
+  position: absolute; left: 14px; top: -11px; white-space: nowrap; padding: 1px 6px; border-radius: 3px;
+  background: #1d4ed8; color: #fff; font-size: 12px; font-weight: 800; line-height: 18px;
+}
+.mk-equipe.antigo .simbolo { opacity: .45; border-style: dashed; filter: grayscale(.6); }
+.mk-equipe .mk-rotulo { font-size: 11px; }
+
+/* Botão "Falar com os bombeiros" (mesmo padrão do "Tirar foto") */
+.acao-falar { grid-column: 1 / -1; min-height: 72px; flex-direction: row; gap: 12px; background: #0f2229; border-color: var(--responsavel); color: #cffafe; }
+.acao-falar .acao-icone { font-size: 1.6rem; }
+.acao-falar.tem-novas { box-shadow: 0 0 0 3px rgba(6, 182, 212, .35); }
+.acao-contador { position: absolute; top: 8px; right: 10px; min-width: 26px; height: 26px; font-size: .85rem; border-radius: 13px; }
+
+/* Janela da conversa: ocupa a tela, abre e fecha pelo botão */
+.painel-conversa {
+  position: fixed; inset: 0; z-index: 2400; display: flex; flex-direction: column;
+  background: var(--fundo); padding: 0 0 env(safe-area-inset-bottom);
+}
+body.conversa-aberta { overflow: hidden; }
+.conversa-cabeca {
+  position: relative; display: flex; align-items: center; gap: 10px; flex: none;
+  padding: max(10px, env(safe-area-inset-top)) 12px 14px; background: var(--barra);
+}
+.conversa-cabeca::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--faixa-sinal); }
+.conversa-cabeca h2 { font-family: var(--fonte-titulo); font-size: 1.15rem; text-transform: uppercase; letter-spacing: .05em; color: #fff; }
+.painel-conversa .chat-lista { flex: 1; min-height: 0; max-height: none; padding: 12px; width: min(640px, 100%); margin: 0 auto; }
+.painel-conversa .chat-vazio { padding: 12px; width: min(640px, 100%); margin: 0 auto; }
+.painel-conversa .chat-form {
+  flex: none; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end;
+  width: min(640px, 100%); margin: 0 auto; padding: 10px 12px; border-top: 1px solid var(--borda);
+}
+.painel-conversa .chat-form textarea.campo { min-height: 52px; font-size: 1.05rem; }
+.painel-conversa .chat-form .btn { min-height: 52px; }
+.painel-conversa .chat-vazio { flex: 1; }

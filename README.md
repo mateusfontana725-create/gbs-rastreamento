@@ -79,13 +79,20 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
 - **Um único aviso de situação**, em linguagem comum: "Os bombeiros estão vendo onde você está"
   (verde), "Procurando o sinal de GPS…", "Sem internet agora — sua localização está sendo guardada"
   (amarelo) ou "O GPS do celular está desligado" (vermelho). Sem horários, precisão ou contadores técnicos.
+- **Mapa**: mostra **você** (ponto azul, com o círculo de precisão) e os **bombeiros** da operação —
+  militares de campo (quadrado vermelho **M**) e o **responsável** (losango ciano **R**, só quando ele
+  liga "Minha posição"). Outros civis **não** aparecem, nem nomes, CPF ou telefone. A posição de um
+  bombeiro com mais de 2 minutos aparece apagada e com "há X min"; com mais de 15 minutos, some do
+  mapa (nunca é mostrada como atual). Atualiza a cada 15 s. O botão **📍 Onde estou** volta para a
+  sua posição.
 - **Três botões grandes**: **TIRAR FOTO**, **ENCONTREI ALGO** (escolhe Possível pista, Objeto,
   Vestígio, Obstáculo ou Outra coisa, escreve se quiser e envia — a localização vai junto
-  automaticamente; dá para enviar e já tirar a foto) e **PRECISO DE AJUDA** (um toque + confirmação:
-  os bombeiros recebem alarme com a localização; o celular mostra o atalho **Ligar 193**).
-- **Conversa com os bombeiros**: as mensagens aparecem sempre como **"Bombeiros"** (sem nome do
-  responsável), só com o texto e a hora. O participante escreve e toca ENVIAR; a localização recente
-  vai junto quando existir. Mensagens e avisos escritos sem internet são enviados depois, sozinhos.
+  automaticamente; dá para enviar e já tirar a foto) e **FALAR COM OS BOMBEIROS**.
+- **Falar com os bombeiros** abre a conversa numa tela própria (e só quando a pessoa toca): as
+  mensagens recebidas aparecem como **"Bombeiros"** (à esquerda) e as enviadas à direita, com o texto
+  e a hora; embaixo, o campo para escrever. O botão mostra um número quando chegam mensagens novas.
+  Mensagens escritas sem internet são enviadas depois, sozinhas. Orientações dos bombeiros (PARE,
+  RETORNE etc.) continuam abrindo o alerta em tela cheia na hora.
 - Fotos: prévia "A foto ficou boa?" sem coordenadas; "Suas fotos" mostra só miniaturas com
   "✓ Enviada" ou "Esperando internet".
 - Sair: o link discreto **Quero sair da busca** (os bombeiros liberam a saída pelo painel).
@@ -101,15 +108,15 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
 - **Relatos com localização** aparecem no mapa como marcadores laranja (P = pista, V = vestígio,
   O = objeto, ! = obstáculo…); tocar abre o texto, o autor, o horário e as coordenadas. Mensagens
   comuns não viram marcador (para não poluir o mapa), mas têm **Ver no mapa**.
-- **Preciso de ajuda** (botão do participante): alarme sonoro, aviso vermelho, participante no topo da
-  lista e marcador em destaque, como o "PRECISO DE AJUDA" em resposta ao CONFIRME; na ficha aparece
-  de onde veio, **Ver no mapa** e **Marcar como atendido**.
+- O participante pode pedir ajuda respondendo **PRECISO DE AJUDA** ao comando CONFIRME (alarme,
+  destaque na lista e no mapa, **Marcar como atendido** na ficha).
 - A **ficha** do participante é enxuta: no topo, tipo e situação; logo abaixo "Posição há X s · ±Y m",
-  **Ver no mapa**, **Trilha** e **📞 Ligar**; depois os comandos, a conversa e as fotos. CPF,
+  **Ver no mapa**, **Trilha** e **📞 Ligar**; depois **Mensagens** e as fotos. CPF,
   coordenadas, GPS, histórico de posições e "Remover participante" ficam em **Mais detalhes**.
-- Na **ficha**, a seção **Conversa** junta o que o participante escreveu e as orientações enviadas, com
-  um campo de **resposta rápida** (mensagem livre, sem abrir janela). Os comandos (RETORNE, PARE etc.)
-  continuam iguais.
+- Na **ficha**, a seção única **Mensagens** reúne tudo: o histórico completo nos dois sentidos (o que
+  o participante escreveu e as orientações enviadas, com o estado de entrega/confirmação), as
+  **orientações rápidas** (RETORNE, ATENÇÃO, MUDE A ROTA, PARE, CONFIRME — com confirmação antes do
+  envio, como antes) e o campo para escrever uma mensagem livre.
 
 ### Fotografias georreferenciadas
 
@@ -364,7 +371,7 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 | Tipo civil/militar | decidido **no servidor** pelo token usado; alterar o navegador não transforma um civil em militar |
 | Autorização no backend | nenhuma tabela aceita gravação direta do navegador; toda escrita passa por funções que validam dono, operação ativa e dados |
 | Separação entre operações | RLS: o responsável só lê as operações em que está na equipe; o participante só lê o próprio cadastro e as próprias mensagens |
-| Coordenadas não públicas | **nenhum participante lê posições**, nem as próprias, nem as dos responsáveis; só os responsáveis da operação |
+| Coordenadas não públicas | participantes **não leem** posições nem trilhas pela base de dados. O mapa do participante usa só a função `equipe_no_mapa`, que devolve a **última posição** dos militares e responsáveis da **mesma operação** (sem nome, CPF, telefone ou trilha; posições com mais de 15 min não vão; responsáveis só quando compartilham "Minha posição"), e nunca a de outros civis |
 | Mensagens e relatos | o participante só lê a própria conversa; os responsáveis leem as da operação. Envio só pela função `participante_enviar_mensagem` (valida participante, operação ativa, tipo, texto ≤ 1000 caracteres, coordenadas; limite de 20 por minuto; reenvio sem duplicar) |
 | Fotos | bucket **privado**: não existe link público. A imagem só é vista por **link temporário assinado (1 h)**, gerado apenas para os responsáveis da operação ou para o próprio autor. O envio só é aceito na pasta `operação/participante/` do próprio participante, com a operação ativa, JPEG até 10 MB; o registro (`registrar_foto`) confere que o arquivo existe e valida as coordenadas |
 | Exclusão de operação | só o criador ou um administrador da equipe (`excluir_operacao`, verificado no banco); transação única; arquivos removidos do Storage com fila de pendências e limpeza diária; tokens invalidados na hora |
@@ -454,7 +461,8 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 19 | No civil, **TIRAR FOTO** → conferir → **SALVAR FOTO** | a câmera aparece no mapa no ponto; tocar abre a foto com autor, horários e coordenadas; **Ampliar** mostra em tela cheia |
 | 20 | Repetir com o celular em modo avião | a foto fica "Na fila"; ao voltar a internet, é enviada sozinha |
 | 21 | **Ferramentas**: trocar camada, ocultar nomes, ocultar a lista | cada opção funciona e o menu fecha; com a lista oculta, o mapa ocupa a tela e **« Participantes** reabre |
-| 22a | No civil, tocar **PRECISO DE AJUDA** e confirmar | o painel dispara alarme e destaca o participante; o celular mostra "Pedido de ajuda enviado" e **Ligar 193** |
+| 22a | No celular do civil, olhar o mapa com um militar andando e o responsável com "Minha posição" ligada | aparecem o ponto azul (você), o **M** vermelho e o **R** ciano; outros civis não aparecem |
+| 22b | No civil, tocar **FALAR COM OS BOMBEIROS**, escrever e enviar; responder pelo painel (ficha → Mensagens) | a conversa abre só ao tocar; a resposta chega como "Bombeiros" e o botão mostra o número de novas |
 | 22 | Criar uma operação de teste, registrar dados e **Excluir operação** (digitando o nome) | some da lista; o link/QR do participante para de funcionar; no Supabase, **Storage → fotos** não tem mais a pasta da operação |
 
 ### Testes já realizados no desenvolvimento
@@ -471,7 +479,7 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   mensagens e relatos dos participantes (validação, limite, reenvio sem duplicar, "lida por",
   isolamento), fotos (regras do Storage, caminho, registro, links assinados, quem vê) e a exclusão de
   operação (permissões, transação, fila de arquivos, limpeza diária, isolamento das outras operações).
-- **Ponta a ponta (135 verificações)**: no Chromium, com o painel no computador, no tablet e no
+- **Ponta a ponta (142 verificações)**: no Chromium, com o painel no computador, no tablet e no
   celular (em pé e deitado), dois celulares Android simulados com GPS em movimento e dois
   responsáveis na mesma operação. Cobre todos os itens da tabela acima (inclusive mensagens, relatos,
   fotos com e sem localização, galeria, menu Ferramentas, lista oculta e exclusão conferida direto no

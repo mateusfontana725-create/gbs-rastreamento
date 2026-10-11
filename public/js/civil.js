@@ -17,6 +17,8 @@
   var CHAVE_FILA = 'sar-civil-fila';
   var CHAVE_CONF = 'sar-civil-confirmacoes';
   var CHAVE_MSGS = 'gbs-civil-mensagens-pendentes';
+  var CHAVE_VISTO = 'gbs-civil-conversa-vista';
+  var EQUIPE_ATUAL_S = 120;          // posição de bombeiro com até 2 min = atual
 
   var CFG = {
     intervaloMinimoMs: 5000,     // no máximo 1 ponto a cada 5 s
@@ -62,6 +64,15 @@
     audio: null,
     swReg: null,
     finalizado: false,
+    // mapa
+    mapa: null,
+    meuMarcador: null,
+    meuCirculo: null,
+    equipe: new Map(),        // id → marcador
+    timerEquipe: null,
+    jaEnquadrou: false,
+    seguindo: true,
+    conversaVistaAte: 0,
   };
 
   /* ------------------------------------------------------------------ */
@@ -153,7 +164,12 @@
     $('btn-saida').addEventListener('click', aoSolicitarSaida);
     $('form-msg').addEventListener('submit', aoEnviarMensagem);
     $('btn-encontrei').addEventListener('click', abrirEncontrei);
-    $('btn-sos').addEventListener('click', pedirAjuda);
+    $('btn-falar').addEventListener('click', abrirConversa);
+    $('conversa-fechar').addEventListener('click', fecharConversa);
+    $('btn-onde-estou').addEventListener('click', function () { estado.seguindo = true; centralizarEmMim(true); });
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && !$('painel-conversa').hidden && !document.querySelector('.modal-fundo')) fecharConversa();
+    });
     $('foto-camera').addEventListener('change', function (ev) { aoEscolherFoto(ev, true); });
     $('foto-galeria').addEventListener('change', function (ev) { aoEscolherFoto(ev, false); });
     $('ini-cpf').addEventListener('input', function () { this.value = mascararCpf(this.value); });
@@ -352,6 +368,11 @@
     conectarMensagens();
 
     if (!estado.timerSinal) estado.timerSinal = setInterval(enviarSinal, CFG.sinalVidaMs);
+    var visto = C.local.ler(CHAVE_VISTO, null);
+    estado.conversaVistaAte = visto && visto.participante_id === estado.part.participante_id ? visto.t : 0;
+    iniciarMapa();
+    carregarEquipe();
+    if (!estado.timerEquipe) estado.timerEquipe = setInterval(carregarEquipe, CFG.sinalVidaMs);
     carregarFilaFotos().then(processarFilaFotos);
     carregarMinhasFotos();
     renderizarHistorico();
@@ -375,6 +396,7 @@
 
     estado.ultimaLeitura = { lat: c.latitude, lng: c.longitude, prec: prec, recebidaEm: agora };
     estado.gps = prec != null && prec > 50 ? 'fraco' : 'ok';
+    atualizarMeuMarcador();
 
     var u = estado.ultimoAceito;
     var aceitar;
@@ -687,7 +709,7 @@
       ul.appendChild(li);
     });
     if (noFim || itens.length < 4) ul.scrollTop = ul.scrollHeight;
-    atualizarAjudaPedida();
+    atualizarContadorConversa();
   }
 
   function bolhaMinha(local, m) {
@@ -704,6 +726,154 @@
         onclick: function () { estado.msgPendentes = estado.msgPendentes.filter(function (x) { return x !== local; }); salvarMsgPendentes(); renderizarHistorico(); } }));
     }
     return li;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Conversa: abre só quando o participante pede                         */
+  /* ------------------------------------------------------------------ */
+  function abrirConversa() {
+    $('painel-conversa').hidden = false;
+    $('btn-falar').setAttribute('aria-expanded', 'true');
+    document.body.classList.add('conversa-aberta');
+    marcarConversaVista();
+    renderizarHistorico();
+    var ul = $('hist-msgs');
+    ul.scrollTop = ul.scrollHeight;
+    setTimeout(function () { $('msg-texto').focus({ preventScroll: true }); }, 50);
+  }
+
+  function fecharConversa() {
+    if ($('painel-conversa').hidden) return;
+    $('painel-conversa').hidden = true;
+    $('btn-falar').setAttribute('aria-expanded', 'false');
+    document.body.classList.remove('conversa-aberta');
+    $('btn-falar').focus();
+  }
+
+  function marcarConversaVista() {
+    estado.conversaVistaAte = Date.now();
+    if (estado.part) C.local.gravar(CHAVE_VISTO, { participante_id: estado.part.participante_id, t: estado.conversaVistaAte });
+    atualizarContadorConversa();
+  }
+
+  // Número no botão: mensagens dos bombeiros que chegaram depois da última vez que a conversa foi aberta.
+  function atualizarContadorConversa() {
+    if (!$('painel-conversa').hidden && estado.part) {
+      estado.conversaVistaAte = Date.now();
+      C.local.gravar(CHAVE_VISTO, { participante_id: estado.part.participante_id, t: estado.conversaVistaAte });
+    }
+    var n = 0;
+    estado.mensagens.forEach(function (m) {
+      if (m.direcao !== 'entrada' && C.paraMs(m.criada_em) > estado.conversaVistaAte) n++;
+    });
+    var c = $('falar-contador');
+    c.textContent = String(n);
+    c.hidden = !n;
+    $('btn-falar').classList.toggle('tem-novas', n > 0);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Mapa: a minha posição e a dos bombeiros                              */
+  /* ------------------------------------------------------------------ */
+  function iniciarMapa() {
+    if (estado.mapa) { setTimeout(function () { estado.mapa.invalidateSize(); }, 50); return; }
+    if (!window.L) { document.querySelector('.mapa-civil-caixa').hidden = true; return; }
+    var mapa = L.map('mapa-civil', { zoomControl: true, attributionControl: true }).setView([-15.79, -47.88], 4);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(mapa);
+    // Se a pessoa arrastar o mapa, ele para de seguir a posição (até tocar em "Onde estou").
+    mapa.on('dragstart', function () { estado.seguindo = false; });
+    estado.mapa = mapa;
+    setTimeout(function () { mapa.invalidateSize(); }, 80);
+    atualizarMeuMarcador();
+  }
+
+  function atualizarMeuMarcador() {
+    var l = estado.ultimaLeitura;
+    if (!estado.mapa || !l) return;
+    var ll = [l.lat, l.lng];
+    if (!estado.meuMarcador) {
+      estado.meuCirculo = L.circle(ll, { radius: l.prec || 0, color: '#3b82f6', weight: 1, fillOpacity: 0.12, interactive: false }).addTo(estado.mapa);
+      estado.meuMarcador = L.marker(ll, {
+        icon: L.divIcon({ className: 'mk-eu-wrap', html: '<div class="mk-eu"></div><div class="mk-eu-rotulo">Você</div>', iconSize: [0, 0] }),
+        keyboard: false, zIndexOffset: 1000, title: 'Você está aqui',
+      }).addTo(estado.mapa);
+      estado.mapa.setView(ll, 16);
+    } else {
+      estado.meuMarcador.setLatLng(ll);
+      estado.meuCirculo.setLatLng(ll);
+      estado.meuCirculo.setRadius(l.prec || 0);
+      if (estado.seguindo && !estado.mapa.getBounds().pad(-0.2).contains(ll)) estado.mapa.panTo(ll);
+    }
+  }
+
+  function centralizarEmMim(aviso) {
+    var l = estado.ultimaLeitura;
+    if (!estado.mapa) return;
+    if (!l) { if (aviso) UI.aviso('Ainda procurando o seu sinal de GPS.', 'erro'); return; }
+    estado.mapa.setView([l.lat, l.lng], Math.max(estado.mapa.getZoom(), 16));
+  }
+
+  function textoIdade(s) {
+    if (s < 60) return 'agora há pouco';
+    var m = Math.round(s / 60);
+    return 'há ' + m + ' min';
+  }
+
+  // Só militares e responsáveis da operação; a idade da posição vem do servidor.
+  async function carregarEquipe() {
+    if (!estado.part || estado.finalizado || !estado.mapa) return;
+    var lista;
+    try {
+      lista = await C.rpc('equipe_no_mapa', { p_participante: estado.part.participante_id }, 12000);
+    } catch (e) {
+      tratarErroFatal(e);
+      return;
+    }
+    if (!estado.mapa) return;
+    var vistos = new Set();
+    var antigos = 0;
+    (lista || []).forEach(function (b) {
+      if (b.lat == null || b.lng == null) return;
+      vistos.add(b.id);
+      var resp = b.tipo === 'responsavel';
+      var antigo = b.idade_s > EQUIPE_ATUAL_S;
+      if (antigo) antigos++;
+      var nome = resp ? 'Responsável' : 'Bombeiro';
+      var html = '<div class="mk mk-equipe ' + (resp ? 'responsavel' : 'militar') + (antigo ? ' antigo' : '') + '">' +
+        '<div class="simbolo simbolo-' + (resp ? 'responsavel' : 'militar') + '"><span>' + (resp ? 'R' : 'M') + '</span></div>' +
+        (antigo ? '<div class="mk-rotulo">' + textoIdade(b.idade_s) + '</div>' : '') + '</div>';
+      var texto = nome + ' — ' + (antigo ? 'última posição conhecida ' + textoIdade(b.idade_s) + ' (pode não estar mais aí)' : 'posição atual');
+      var mk = estado.equipe.get(b.id);
+      if (!mk) {
+        mk = L.marker([b.lat, b.lng], { icon: L.divIcon({ className: 'mk-wrap', html: html, iconSize: [0, 0] }), title: texto, keyboard: false, zIndexOffset: resp ? 200 : 100 });
+        mk.bindPopup(texto);
+        mk.addTo(estado.mapa);
+        mk._gbsHtml = html;
+        estado.equipe.set(b.id, mk);
+      } else {
+        mk.setLatLng([b.lat, b.lng]);
+        if (mk._gbsHtml !== html) { mk.setIcon(L.divIcon({ className: 'mk-wrap', html: html, iconSize: [0, 0] })); mk._gbsHtml = html; }
+        mk.setPopupContent(texto);
+        if (mk.options.title !== texto && mk.getElement()) mk.getElement().title = texto;
+      }
+    });
+    estado.equipe.forEach(function (mk, id) {
+      if (!vistos.has(id)) { mk.remove(); estado.equipe.delete(id); }
+    });
+    var nota = $('mapa-nota');
+    nota.hidden = vistos.size > 0;
+    nota.textContent = 'Nenhum bombeiro com localização no mapa agora.';
+    // Na primeira vez, mostra você e a equipe juntos.
+    if (!estado.jaEnquadrou && vistos.size && estado.ultimaLeitura) {
+      estado.jaEnquadrou = true;
+      var pts = [[estado.ultimaLeitura.lat, estado.ultimaLeitura.lng]];
+      estado.equipe.forEach(function (mk) { var p = mk.getLatLng(); pts.push([p.lat, p.lng]); });
+      estado.mapa.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 16 });
+      estado.seguindo = false;
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -841,34 +1011,6 @@
       enviar();
       aoEscolherFoto(ev, true, legenda);
     });
-  }
-
-  // Pedido de ajuda: um toque + confirmação. Vai com a localização e fica na fila sem internet.
-  async function pedirAjuda() {
-    if (!estado.part || estado.finalizado) return;
-    var r = await UI.confirmar({
-      titulo: 'Pedir ajuda aos bombeiros?',
-      texto: 'Os bombeiros vão receber um alerta com a sua localização.',
-      ok: 'SIM, PRECISO DE AJUDA',
-      cancelar: 'Cancelar',
-      perigo: true,
-    });
-    if (!r) return;
-    var pos = posicaoRecente() || await obterPosicaoAgora();
-    var env = await enviarAosBombeiros('AJUDA', 'PRECISO DE AJUDA', pos);
-    if (env.ok) UI.aviso('Pedido de ajuda enviado. Os bombeiros receberam sua localização.', 'ok', 8000);
-    else if (!env.item.erro) UI.aviso('Sem internet: o pedido de ajuda vai ser enviado assim que o sinal voltar. Em emergência, ligue 193.', 'erro', 10000);
-    atualizarAjudaPedida();
-  }
-
-  // Mostra o cartão "Pedido de ajuda enviado" por 30 min após o último pedido.
-  function atualizarAjudaPedida() {
-    var ultimo = 0;
-    estado.mensagens.forEach(function (m) { if (m.direcao === 'entrada' && m.categoria === 'AJUDA') ultimo = Math.max(ultimo, C.paraMs(m.criada_em)); });
-    estado.msgPendentes.forEach(function (x) { if (x.categoria === 'AJUDA' && !x.erro) ultimo = Math.max(ultimo, x.criada_local); });
-    var mostrar = ultimo && Date.now() - ultimo < 30 * 60000;
-    $('ajuda-pedida').hidden = !mostrar;
-    if (mostrar) $('ajuda-hora').textContent = 'às ' + C.hora(ultimo, false);
   }
 
   async function enviarMensagemPendente(item) {
@@ -1248,6 +1390,10 @@
     pararColeta();
     clearInterval(estado.timerSinal);
     clearInterval(estado.timerUI);
+    clearInterval(estado.timerEquipe);
+    estado.timerEquipe = null;
+    $('painel-conversa').hidden = true;
+    document.body.classList.remove('conversa-aberta');
     clearTimeout(estado.timerEnvio);
     estado.timerSinal = estado.timerUI = null;
     if (estado.canal) {
@@ -1259,6 +1405,7 @@
     C.local.apagar(CHAVE_FILA);
     C.local.apagar(CHAVE_CONF);
     C.local.apagar(CHAVE_MSGS);
+    C.local.apagar(CHAVE_VISTO);
     var naFila = estado.fotosLocais.size;
     estado.fotosLocais.forEach(function (it, id) { apagarFotoLocal(id); });
     if (naFila) UI.aviso(naFila + ' foto(s) que ainda não tinham sido enviadas foram descartadas.', 'erro', 8000);
@@ -1311,7 +1458,6 @@
     $('saida-pendente').hidden = !pendente;
     if (pendente) $('saida-hora').textContent = C.hora(estado.saidaSolicitadaEm, false);
     $('btn-saida').hidden = pendente;
-    atualizarAjudaPedida();
   }
 
   iniciar();

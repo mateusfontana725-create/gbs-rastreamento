@@ -287,19 +287,20 @@
               <a class="btn btn-ok" id="ficha-ligar" href="#" hidden>Ligar</a>
             </div>
           </div>
-          <div class="ficha-bloco">
-            <h3 id="ficha-cmd-titulo">Enviar orientação</h3>
-            <div class="comandos" id="ficha-comandos"></div>
-            <p class="ajuda" id="ficha-cmd-aviso" hidden></p>
-          </div>
-          <div class="ficha-bloco" id="ficha-conversa">
-            <h3 id="ficha-msgs-titulo">Conversa</h3>
+          <!-- Mensagens: histórico, orientações rápidas e envio, num só lugar -->
+          <div class="ficha-bloco ficha-mensagens" id="ficha-conversa">
+            <h3 id="ficha-msgs-titulo">Mensagens</h3>
             <ul class="msgs conversa" id="ficha-msgs" aria-live="polite"></ul>
+            <div class="cmd-rapidos" id="ficha-cmd-rapidos">
+              <span class="cmd-rapidos-rotulo" id="ficha-cmd-titulo">Orientação rápida</span>
+              <div class="comandos comandos-compactos" id="ficha-comandos" role="group" aria-labelledby="ficha-cmd-titulo"></div>
+            </div>
             <form class="resposta-rapida" id="form-resposta" novalidate>
               <label class="sr-only" for="resposta-texto">Mensagem</label>
               <textarea class="campo" id="resposta-texto" rows="2" maxlength="500" placeholder="Escrever mensagem…"></textarea>
               <button class="btn btn-escuro" type="submit" id="btn-responder">Enviar</button>
             </form>
+            <p class="ajuda" id="ficha-cmd-aviso" hidden></p>
           </div>
           <div class="ficha-bloco" id="ficha-fotos-bloco" hidden>
             <h3>Fotos (<span id="ficha-qtd-fotos">0</span>)</h3>

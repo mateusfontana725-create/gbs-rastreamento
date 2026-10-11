@@ -1476,6 +1476,53 @@ begin
 end;
 $$;
 
+-- Mapa do participante: a última posição dos MILITARES e dos RESPONSÁVEIS da mesma
+-- operação (os responsáveis só enquanto compartilham "Minha posição"). Nunca mostra
+-- outros civis, nomes, CPF, telefone nem trilhas. Posições com mais de 15 min não
+-- são enviadas; a idade vai junto para a página não apresentar posição antiga como atual.
+create or replace function public.equipe_no_mapa(p_participante uuid)
+returns json
+language plpgsql stable security definer set search_path = public
+as $$
+declare
+  v_part public.participantes%rowtype;
+  v_status text;
+begin
+  select * into v_part from public.participantes where id = p_participante and user_id = auth.uid();
+  if not found then
+    raise exception 'participante_invalido';
+  end if;
+  if v_part.liberado_em is not null then
+    raise exception 'participante_liberado';
+  end if;
+  if v_part.removido then
+    raise exception 'participante_removido';
+  end if;
+  select status into v_status from public.operacoes where id = v_part.operacao_id;
+  if v_status <> 'ativa' then
+    raise exception 'operacao_encerrada';
+  end if;
+  return coalesce((
+    select json_agg(json_build_object(
+             'id', p.id,
+             'tipo', p.tipo,
+             'lat', p.ultima_lat,
+             'lng', p.ultima_lng,
+             'precisao', p.ultima_precisao,
+             'idade_s', greatest(0, floor(extract(epoch from now() - p.ultima_posicao_em)))::integer))
+      from public.participantes p
+     where p.operacao_id = v_part.operacao_id
+       and p.id <> v_part.id
+       and p.tipo in ('militar', 'responsavel')
+       and not p.removido
+       and p.liberado_em is null
+       and p.ultima_lat is not null and p.ultima_lng is not null
+       and p.ultima_posicao_em > now() - interval '15 minutes'
+       and (p.tipo <> 'responsavel' or p.rastreando)
+  ), '[]'::json);
+end;
+$$;
+
 -- Hora do servidor (para sincronizar relógios e calcular "há X segundos").
 create or replace function public.agora()
 returns timestamptz
@@ -1574,6 +1621,8 @@ to authenticated;
 
 -- A tela inicial do participante mostra o nome da operação antes do login anônimo.
 grant execute on function public.info_operacao(text) to anon;
+revoke execute on function public.equipe_no_mapa(uuid) from public, anon;
+grant execute on function public.equipe_no_mapa(uuid) to authenticated;
 
 -- Só o servidor (chave secreta, função /api/limpeza) executa a limpeza.
 revoke execute on function public.purgar_expiradas() from authenticated;
