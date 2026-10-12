@@ -53,6 +53,8 @@
     posicao_invalida: 'Coordenadas inválidas.',
     setor_nao_encontrado: 'Este setor não existe mais (pode ter sido excluído por outro responsável).',
     ponto_nao_encontrado: 'Este ponto não existe mais (pode ter sido excluído por outro responsável).',
+    participante_ativo: 'Este participante já está ativo na operação.',
+    funcao_ausente: 'O servidor ainda não foi atualizado (falta executar a migração mais recente do banco no Supabase). Avise o responsável técnico.',
     responsavel_nao_encontrado: 'Nenhum responsável cadastrado com esse e-mail. Peça ao administrador para autorizá-lo primeiro.',
     'Invalid login credentials': 'E-mail ou senha incorretos.',
     'Email not confirmed': 'E-mail ainda não confirmado no Supabase.',
@@ -72,6 +74,8 @@
 
   function codigoDoErro(err) {
     var t = textoDoErro(err);
+    // PostgREST: função inexistente no banco (migração não aplicada ou cache de esquema desatualizado)
+    if (err && (err.code === 'PGRST202' || /Could not find the function/i.test(t))) return 'funcao_ausente';
     for (var k in ERROS) {
       if (t.indexOf(k) !== -1) return k;
     }

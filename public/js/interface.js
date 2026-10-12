@@ -110,5 +110,34 @@
     });
   }
 
+  /*
+   * Página aberta há muito tempo pode estar rodando uma versão antiga do
+   * aplicativo (ex.: a página do participante fica aberta a busca inteira).
+   * Compara a versão desta página com /versao.json e, se mudou, oferece
+   * atualizar. Recarregar não perde a participação: ela retoma sozinha.
+   */
+  function verificarVersao() {
+    var meta = document.querySelector('meta[name="gbs-versao"]');
+    if (!meta || !window.fetch) return;
+    var minha = meta.getAttribute('content');
+    var avisado = false;
+    function conferir() {
+      if (avisado || document.visibilityState !== 'visible') return;
+      fetch('versao.json?_=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+        if (!j || !j.versao || j.versao === minha || avisado) return;
+        avisado = true;
+        var faixa = el('div', { classe: 'faixa-versao', role: 'status' }, [
+          el('span', { texto: 'Há uma versão nova desta página.' }),
+          el('button', { classe: 'btn btn-pequeno btn-escuro', type: 'button', texto: 'Atualizar agora', onclick: function () { window.GBS_RECARREGANDO = true; location.reload(); } }),
+        ]);
+        document.body.appendChild(faixa);
+      }).catch(function () { /* sem internet: tenta depois */ });
+    }
+    setInterval(conferir, 5 * 60000);
+    document.addEventListener('visibilitychange', conferir);
+    setTimeout(conferir, 20000);
+  }
+  verificarVersao();
+
   window.UI = { el: el, aviso: aviso, abrirModal: abrirModal, fecharModal: fecharModal, confirmar: confirmar };
 })();

@@ -20,13 +20,16 @@
   var CHAVE_VISTO = 'gbs-civil-conversa-vista';
   var EQUIPE_ATUAL_S = 120;          // posição de bombeiro com até 2 min = atual
 
+  // Coleta x envio: o GPS é lido continuamente (watchPosition); o filtro (gps.js)
+  // decide quais leituras entram na trilha; os pontos aceitos vão para uma fila
+  // local e são enviados em lote a cada intervaloEnvioMs (ou logo, no 1º ponto).
   var CFG = {
-    intervaloMinimoMs: 5000,     // no máximo 1 ponto a cada 5 s
-    intervaloMaximoMs: 30000,    // parado: ao menos 1 ponto a cada 30 s
-    distanciaMinimaM: 5,         // registra quando andar 5 m ou mais
-    precisaoMaximaM: 100,        // pontos piores só entram 1x por minuto
+    intervaloEnvioMs: 10000,     // envio em lote a cada 10 s
     sinalVidaMs: 15000,          // "estou conectado" a cada 15 s
     semGpsMs: 60000,             // sem leitura por 60 s = "sem sinal"
+    reiniciarGpsMs: 90000,       // sem leitura por 90 s com a tela aberta: reinicia a leitura do GPS
+    reinclusaoMs: 20000,         // removido: verifica a cada 20 s se foi chamado de volta
+    destinoMs: 15000,            // recuperação do destino (além do tempo real)
     loteMaximo: 200,
     filaMaxima: 5000,
   };
@@ -82,6 +85,17 @@
     rumoEm: 0,
     ouvindoBussola: false,
     rafNav: null,
+    destinoConfirmado: null,  // id do destino cuja chegada já foi confirmada ao servidor
+    falhasDestino: 0,
+    destinoSemTempoReal: false,
+    // GPS
+    filtro: new window.GPS.Filtro(),
+    permissao: 'desconhecido',  // granted | denied | prompt | desconhecido
+    statusPermissao: null,
+    watchIniciadoEm: 0,
+    envioAgendadoPara: 0,
+    timerReinclusao: null,
+    motivoFim: null,
   };
 
   /* ------------------------------------------------------------------ */
@@ -191,8 +205,130 @@
       if (this.checked) pedirTelaLigada(); else liberarTelaLigada();
     });
     $('btn-notif').addEventListener('click', ativarNotificacoes);
+    $('perm-verificar').addEventListener('click', verificarPermissaoDeNovo);
+    $('perm-recarregar').addEventListener('click', function () { location.reload(); });
+    $('status-acao').addEventListener('click', mostrarComoResolver);
+    $('btn-voltar-busca').addEventListener('click', voltarParaBusca);
+    $('btn-diag').addEventListener('click', abrirDiagnostico);
+    $('btn-diag').hidden = !/(^|[&#?])diag=1(&|$)/.test(location.hash + '&' + location.search);
 
+    await acompanharPermissao();
+    if (estado.permissao === 'denied') mostrarPermissao('navegador');
+
+    // Página recarregada (ou reaberta) por quem já estava na busca: retoma sozinha,
+    // sem refazer o cadastro, quando a localização já está permitida.
+    if (salvo && salvo.token === estado.token && salvo.participante_id && (salvo.ativo || salvo.removido)) {
+      if (await retomarParticipacao(salvo)) return;
+    }
     mostrarTela('inicio');
+  }
+
+  // Consulta a situação de quem já participava (sem criar sessão nova).
+  async function retomarParticipacao(salvo) {
+    var sessao = null;
+    try { sessao = (await C.cliente.auth.getSession()).data.session; } catch (e) { /* sem sessão */ }
+    if (!sessao) return false;
+    var r;
+    try {
+      r = await C.rpc('sinal_vida', { p_participante: salvo.participante_id, p_rastreando: null, p_gps: null }, 12000);
+    } catch (e) {
+      return false;   // sem internet: mostra a tela inicial com CONTINUAR
+    }
+    estado.part = { participante_id: salvo.participante_id, nome: salvo.nome, tipo: salvo.tipo, operacao: estado.info.operacao };
+    estado.cpf = salvo.cpf;
+    estado.telefone = salvo.telefone;
+    if (!r || r.status !== 'ativa') {
+      finalizar(r && ['removido', 'liberado', 'inexistente'].indexOf(r.status) !== -1 ? r.status : 'encerrada');
+      return true;
+    }
+    if (salvo.ativo && estado.permissao === 'granted') {
+      mostrarTela('inicio');
+      await entrarNaBusca({ nome: salvo.nome, tipo: salvo.tipo, cpf: salvo.cpf, tel: salvo.telefone });
+      return true;
+    }
+    estado.part = null;
+    return false;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Permissão de localização                                             */
+  /* ------------------------------------------------------------------ */
+  // Acompanha a permissão do navegador (Permissions API, quando existe): se a
+  // pessoa liberar a localização nas configurações, a página percebe sozinha.
+  async function acompanharPermissao() {
+    var r = await window.GPS.consultarPermissao();
+    estado.permissao = r.estado;
+    if (r.status && !estado.statusPermissao) {
+      estado.statusPermissao = r.status;
+      r.status.onchange = function () {
+        estado.permissao = r.status.state;
+        aoMudarPermissao();
+      };
+    }
+  }
+
+  function aoMudarPermissao() {
+    if (estado.permissao === 'granted') {
+      if (!$('tela-inicio').hidden && !$('ini-permissao').hidden) {
+        $('ini-permissao').hidden = true;
+        UI.aviso('Localização liberada.', 'ok');
+        if (estado.tentouEntrar) $('form-inicio').requestSubmit();
+      } else if (estado.rastreando && (estado.gps === 'negado' || estado.gps === 'indisponivel')) {
+        religarGps();
+      }
+    } else if (estado.permissao === 'denied' && estado.rastreando) {
+      estado.gps = 'negado';
+      atualizarUI();
+    }
+  }
+
+  // problema: 'navegador' | 'sistema' | 'sinal'
+  function mostrarPermissao(problema) {
+    var inst = window.GPS.instrucoesLocalizacao(problema);
+    $('perm-titulo').textContent = inst.titulo;
+    $('perm-texto').textContent = problema === 'navegador'
+      ? 'Sem a localização os bombeiros não conseguem ver onde você está. Para liberar:'
+      : problema === 'sistema' ? 'O navegador pode usar a localização, mas ela está desligada no celular. Para ligar:'
+        : 'Para melhorar o sinal:';
+    var ol = $('perm-passos');
+    ol.innerHTML = '';
+    inst.passos.forEach(function (p) { ol.appendChild(UI.el('li', { texto: p })); });
+    $('perm-recarregar').hidden = !(problema === 'navegador' && window.GPS.ambiente().so === 'ios');
+    $('ini-permissao').hidden = false;
+    $('ini-permissao').scrollIntoView({ block: 'start' });
+  }
+
+  async function verificarPermissaoDeNovo() {
+    await acompanharPermissao();
+    var btn = $('perm-verificar');
+    btn.disabled = true;
+    btn.textContent = 'VERIFICANDO…';
+    var teste = await obterPosicaoInicial();
+    btn.disabled = false;
+    btn.textContent = 'VERIFICAR DE NOVO';
+    if (teste.ok || teste.codigo === 3) {
+      $('ini-permissao').hidden = true;
+      if (estado.tentouEntrar) $('form-inicio').requestSubmit();
+      else UI.aviso(teste.ok ? 'Localização funcionando. Toque em COMEÇAR.' : 'Localização permitida. Toque em COMEÇAR.', 'ok', 6000);
+      return;
+    }
+    mostrarPermissao(teste.codigo === 2 ? 'sistema' : 'navegador');
+    UI.aviso(teste.codigo === 2 ? 'A localização do celular ainda está desligada.' : 'A localização ainda está bloqueada para este site.', 'erro', 6000);
+  }
+
+  // Durante a busca: explica como liberar/ligar e tenta de novo.
+  function mostrarComoResolver() {
+    var problema = estado.gps === 'negado' ? 'navegador' : estado.gps === 'indisponivel' ? 'sistema' : 'sinal';
+    var inst = window.GPS.instrucoesLocalizacao(problema);
+    var ol = UI.el('ol', { classe: 'perm-passos' }, inst.passos.map(function (p) { return UI.el('li', { texto: p }); }));
+    var fechar = UI.abrirModal(UI.el('div', null, [
+      UI.el('h2', { id: 'modal-titulo', texto: inst.titulo }),
+      ol,
+      UI.el('div', { classe: 'modal-acoes' }, [
+        UI.el('button', { classe: 'btn', type: 'button', texto: 'Fechar', onclick: function () { fechar(); } }),
+        UI.el('button', { classe: 'btn btn-escuro', type: 'button', texto: 'Verificar de novo', onclick: function () { fechar(); religarGps(true); } }),
+      ]),
+    ]));
   }
 
   /* ------------------------------------------------------------------ */
@@ -293,7 +429,16 @@
       $('ini-tel').focus();
       return;
     }
+    await entrarNaBusca({ nome: nome, tipo: tipo, cpf: cpf, tel: tel });
+  }
 
+  // Pede a localização pelo mecanismo oficial do navegador, entra na operação
+  // (ou volta para o mesmo registro) e começa a enviar. O rastreamento só é
+  // mostrado como ativo depois que a permissão é concedida.
+  async function entrarNaBusca(dados) {
+    if (estado.entrando) return;
+    estado.entrando = true;
+    estado.tentouEntrar = true;
     var btn = $('btn-iniciar');
     var textoOriginal = btn.textContent;
     btn.disabled = true;
@@ -303,21 +448,23 @@
     try {
       // 1. Permissão e teste do GPS
       var teste = await obterPosicaoInicial();
+      await acompanharPermissao();
       if (!teste.ok && teste.codigo === 1) {
-        erroInicio('A permissão de localização foi negada. Toque no cadeado ao lado do endereço do site, ' +
-          'permita "Localização" e tente novamente. Verifique também se a localização (GPS) do celular está ligada.');
+        erroInicio('');
+        mostrarPermissao('navegador');
         return;
       }
+      $('ini-permissao').hidden = true;
 
-      // 2. Sessão anônima e ingresso
+      // 2. Sessão anônima e ingresso (o mesmo aparelho volta para o mesmo registro)
       btn.textContent = 'CONECTANDO…';
       await garantirSessao();
       var part = await C.rpc('ingressar', {
-        p_token: estado.token, p_nome: nome, p_tipo: tipo,
-        p_cpf: cpf || null, p_telefone: tel || null,
+        p_token: estado.token, p_nome: dados.nome, p_tipo: dados.tipo,
+        p_cpf: dados.cpf || null, p_telefone: dados.tel || null,
       });
-      estado.cpf = cpf;
-      estado.telefone = tel;
+      estado.cpf = dados.cpf;
+      estado.telefone = dados.tel;
       estado.saidaSolicitadaEm = part.saida_solicitada_em || null;
 
       if (estado.part && estado.part.participante_id !== part.participante_id) estado.fila = [];
@@ -328,28 +475,41 @@
         estado.confirmadasLocal.clear();
       }
       estado.part = part;
+      estado.finalizado = false;
       salvarParticipacao(true);
 
       mostrarTela('rastreio');
       registrarServiceWorker();
+      if (!teste.ok) estado.gps = teste.codigo === 2 ? 'indisponivel' : 'sem_sinal';
       comecarRastreamento(teste.ok ? teste.pos : null);
-      if (!teste.ok) {
-        estado.gps = teste.codigo === 2 ? 'indisponivel' : 'sem_sinal';
+      if (!teste.ok && teste.codigo === 2) {
+        UI.aviso('A localização do celular está desligada. Toque em "Como resolver".', 'erro', 8000);
+      } else if (!teste.ok) {
         UI.aviso('Ainda sem sinal de GPS. Se possível, vá para um local aberto. O rastreamento continua tentando.', 'erro', 7000);
       }
     } catch (e) {
       if (e.codigo === 'operacao_encerrada' || e.codigo === 'participante_removido' || e.codigo === 'participante_liberado') {
+        if (!estado.part && salvoAtivo()) {
+          var s = C.local.ler(CHAVE_PART, null);
+          estado.part = { participante_id: s.participante_id, nome: s.nome, tipo: s.tipo, operacao: estado.info.operacao };
+        }
         finalizar({ operacao_encerrada: 'encerrada', participante_removido: 'removido', participante_liberado: 'liberado' }[e.codigo]);
         return;
       }
       erroInicio(e.rede ? 'Sem conexão com a internet. Verifique os dados móveis ou o Wi-Fi e tente novamente.' : e.message);
     } finally {
+      estado.entrando = false;
       btn.disabled = false;
       btn.textContent = textoOriginal;
     }
   }
 
-  function salvarParticipacao(ativo) {
+  function salvoAtivo() {
+    var s = C.local.ler(CHAVE_PART, null);
+    return Boolean(s && s.token === estado.token && s.participante_id);
+  }
+
+  function salvarParticipacao(ativo, removido) {
     if (!estado.part) return;
     C.local.gravar(CHAVE_PART, {
       token: estado.token,
@@ -359,22 +519,17 @@
       cpf: estado.cpf || '',
       telefone: estado.telefone || '',
       ativo: Boolean(ativo),
+      removido: Boolean(removido),
     });
   }
 
   function comecarRastreamento(posInicial) {
     estado.rastreando = true;
     estado.ultimoTique = Date.now();
+    estado.filtro.reiniciar();
     salvarParticipacao(true);
     if (posInicial) processarPosicao(posInicial);
-
-    if (estado.watchId == null) {
-      estado.watchId = navigator.geolocation.watchPosition(processarPosicao, erroGps, {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 30000,
-      });
-    }
+    iniciarWatch();
     pedirTelaLigada();
     conectarMensagens();
 
@@ -383,7 +538,10 @@
     estado.conversaVistaAte = visto && visto.participante_id === estado.part.participante_id ? visto.t : 0;
     iniciarMapa();
     carregarEquipe();
-    if (!estado.timerEquipe) estado.timerEquipe = setInterval(carregarEquipe, CFG.sinalVidaMs);
+    carregarDestino();
+    if (!estado.timerEquipe) {
+      estado.timerEquipe = setInterval(function () { carregarEquipe(); carregarDestino(); }, CFG.destinoMs);
+    }
     carregarFilaFotos().then(processarFilaFotos);
     carregarMinhasFotos();
     renderizarHistorico();
@@ -394,54 +552,72 @@
     atualizarUI();
   }
 
+  // Um único observador do GPS por vez (nunca duplicado).
+  function iniciarWatch() {
+    if (estado.watchId != null) return;
+    estado.watchIniciadoEm = Date.now();
+    estado.watchId = navigator.geolocation.watchPosition(processarPosicao, erroGps, {
+      enableHighAccuracy: true,   // usa o GPS (não só Wi-Fi/antenas)
+      maximumAge: 0,              // nunca aceitar posição guardada em cache
+      timeout: 30000,             // sem leitura em 30 s: avisa "procurando sinal" e continua tentando
+    });
+  }
+
+  function pararWatch() {
+    if (estado.watchId != null) {
+      navigator.geolocation.clearWatch(estado.watchId);
+      estado.watchId = null;
+    }
+  }
+
+  // Reinicia a leitura do GPS (depois de liberar a permissão, ligar a localização
+  // ou quando o navegador para de entregar leituras).
+  function religarGps(avisar) {
+    if (!estado.rastreando) return;
+    pararWatch();
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      processarPosicao(pos);
+      if (avisar) UI.aviso('Localização funcionando.', 'ok');
+    }, function (err) {
+      erroGps(err);
+      if (avisar) UI.aviso(err.code === 1 ? 'A localização continua bloqueada para este site.' : err.code === 2 ? 'A localização do celular continua desligada.' : 'Ainda sem sinal de GPS.', 'erro', 6000);
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    iniciarWatch();
+  }
+
   /* ------------------------------------------------------------------ */
   /* GPS                                                                  */
   /* ------------------------------------------------------------------ */
+  // Toda leitura passa pelo filtro (gps.js). "atual" é o que a tela mostra como
+  // posição agora; "ponto" é o que entra na trilha e vai para os bombeiros.
   function processarPosicao(pos) {
     if (!estado.rastreando) return;
-    var c = pos.coords;
-    if (!c || !isFinite(c.latitude) || !isFinite(c.longitude)) return;
-    var agora = Date.now();
-    var t = pos.timestamp && Math.abs(pos.timestamp - agora) < 24 * 3600 * 1000 ? pos.timestamp : agora;
-    var prec = isFinite(c.accuracy) ? c.accuracy : null;
-
-    estado.ultimaLeitura = { lat: c.latitude, lng: c.longitude, prec: prec, recebidaEm: agora };
-    estado.gps = prec != null && prec > 50 ? 'fraco' : 'ok';
-    atualizarMeuMarcador();
-    agendarNavegacao();
-
-    var u = estado.ultimoAceito;
-    var aceitar;
-    if (!u) {
-      aceitar = true;
-    } else {
-      var dt = t - u.t;
-      var d = C.distancia(u.lat, u.lng, c.latitude, c.longitude);
-      if (dt < CFG.intervaloMinimoMs) aceitar = false;
-      else if (prec != null && prec > CFG.precisaoMaximaM) aceitar = dt >= 60000;
-      else aceitar = d >= CFG.distanciaMinimaM || dt >= CFG.intervaloMaximoMs;
+    var r = estado.filtro.processar(pos);
+    if (r.atual) {
+      var a = r.atual;
+      estado.ultimaLeitura = { lat: a.lat, lng: a.lng, prec: a.prec, recebidaEm: a.recebidaEm, t: a.t };
+      estado.gps = a.prec != null && a.prec > 50 ? 'fraco' : 'ok';
+      atualizarMeuMarcador();
+      agendarNavegacao();
     }
-
-    if (aceitar) {
-      estado.ultimoAceito = { lat: c.latitude, lng: c.longitude, t: t };
-      estado.fila.push({
-        id: C.uuid(),
-        lat: Math.round(c.latitude * 1e7) / 1e7,
-        lng: Math.round(c.longitude * 1e7) / 1e7,
-        prec: prec == null ? null : Math.round(prec * 10) / 10,
-        t: t,
-      });
+    if (r.ponto) {
+      estado.ultimoAceito = r.ponto;
+      estado.fila.push({ id: C.uuid(), lat: r.ponto.lat, lng: r.ponto.lng, prec: r.ponto.prec, t: r.ponto.t });
       if (estado.fila.length > CFG.filaMaxima) estado.fila.splice(0, estado.fila.length - CFG.filaMaxima);
       salvarFila();
-      agendarEnvio(800);
+      // 1º ponto vai na hora; depois, em lote.
+      agendarEnvio(estado.ultimoEnviadoT ? CFG.intervaloEnvioMs : 300);
     }
+    if (window.GBS_DEBUG_GPS) console.debug('[GPS]', r.motivo, r.atual ? Math.round(r.atual.prec || 0) + ' m' : '');
     atualizarUI();
   }
 
   function erroGps(err) {
     if (err.code === 1) estado.gps = 'negado';
     else if (err.code === 2) estado.gps = 'indisponivel';
-    else estado.gps = 'sem_sinal';
+    else if (!estado.ultimaLeitura || Date.now() - estado.ultimaLeitura.recebidaEm > CFG.semGpsMs) estado.gps = 'sem_sinal';
+    // timeout (3) com leitura recente: falha temporária, mantém o estado
+    estado.filtro.registrar(null, false, err.code === 1 ? 'negado' : err.code === 2 ? 'indisponivel' : 'sem_sinal');
     atualizarUI();
   }
 
@@ -453,9 +629,14 @@
   /* ------------------------------------------------------------------ */
   /* Envio ao servidor                                                    */
   /* ------------------------------------------------------------------ */
+  // Agenda o envio da fila. Um pedido mais cedo antecipa; um mais tarde não adia
+  // o que já estava marcado (senão, andando, o envio nunca aconteceria).
   function agendarEnvio(ms) {
+    var alvo = Date.now() + ms;
+    if (estado.envioAgendadoPara && estado.envioAgendadoPara <= alvo) return;
     clearTimeout(estado.timerEnvio);
-    estado.timerEnvio = setTimeout(enviarFila, ms);
+    estado.envioAgendadoPara = alvo;
+    estado.timerEnvio = setTimeout(function () { estado.envioAgendadoPara = 0; enviarFila(); }, ms);
   }
 
   async function enviarFila() {
@@ -488,6 +669,7 @@
       }
     } finally {
       estado.enviando = false;
+      if (estado.fila.length && !estado.envioAgendadoPara && !estado.finalizado) agendarEnvio(CFG.intervaloEnvioMs);
       atualizarUI();
     }
   }
@@ -555,8 +737,14 @@
       .channel('mensagens-' + pid)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mensagens', filter: 'participante_id=eq.' + pid },
         function (carga) { if (carga.new && carga.new.id) receberMensagens([carga.new]); })
+      // Destino enviado pelos bombeiros: chega na hora (o RLS só entrega o destino
+      // deste participante). A consulta confirma o estado atual no servidor.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'destinos', filter: 'participante_id=eq.' + pid },
+        function () { carregarDestino(); carregarEquipe(); })
       .subscribe(function (status) {
-        if (status === 'SUBSCRIBED') buscarMensagens();
+        estado.statusTempoReal = status;
+        // Conectou ou reconectou: recupera o que pode ter chegado enquanto estava fora.
+        if (status === 'SUBSCRIBED') { buscarMensagens(); carregarDestino(); }
       });
   }
 
@@ -849,7 +1037,55 @@
     if (!estado.mapa || !dados) return;
     desenharEquipe(dados.equipe || []);
     desenharExtras(dados.setores || [], dados.pontos || []);
-    definirDestino(dados.destino || null);
+    if (estado.destinoSemFuncao) definirDestino(dados.destino || null);   // servidor sem a migração 004
+  }
+
+  // Destino ativo: não depende do mapa (funciona mesmo se o mapa não carregar).
+  // Chamado ao entrar, pelo tempo real, ao reconectar, ao voltar para a página
+  // e a cada 15 s. Nunca falha em silêncio: avisa se não conseguir verificar.
+  async function carregarDestino() {
+    if (!estado.part || estado.finalizado || estado.buscandoDestino) return;
+    estado.buscandoDestino = true;
+    try {
+      var d;
+      if (estado.destinoSemFuncao) {
+        var m = await C.rpc('mapa_do_participante', { p_participante: estado.part.participante_id }, 12000);
+        d = m ? m.destino : null;
+      } else {
+        d = await C.rpc('meu_destino', { p_participante: estado.part.participante_id }, 12000);
+      }
+      estado.falhasDestino = 0;
+      mostrarAvisoDestino('');
+      definirDestino(d || null);
+      if (d && d.id && estado.destinoConfirmado !== d.id && !estado.destinoSemFuncao) confirmarDestino(d.id);
+    } catch (e) {
+      if (tratarErroFatal(e)) return;
+      if (e.codigo === 'funcao_ausente' && !estado.destinoSemFuncao) {
+        // Servidor ainda sem a migração 004: usa a consulta da migração 003.
+        estado.destinoSemFuncao = true;
+        estado.buscandoDestino = false;
+        return carregarDestino();
+      }
+      estado.falhasDestino++;
+      if (!e.rede && estado.falhasDestino >= 2) {
+        mostrarAvisoDestino('Não foi possível verificar se os bombeiros mandaram um destino (' + e.message + '). Tentando de novo…');
+      }
+    } finally {
+      estado.buscandoDestino = false;
+    }
+  }
+
+  async function confirmarDestino(id) {
+    try {
+      await C.rpc('confirmar_destino', { p_destino: id }, 12000);
+      estado.destinoConfirmado = id;
+    } catch (e) { /* tenta de novo na próxima verificação */ }
+  }
+
+  function mostrarAvisoDestino(texto) {
+    var p = $('aviso-destino');
+    if (p.textContent !== texto) p.textContent = texto;
+    p.hidden = !texto;
   }
 
   function desenharEquipe(lista) {
@@ -926,7 +1162,13 @@
   function definirDestino(d) {
     var antes = estado.destino;
     if (!d) {
-      if (antes) { estado.destino = null; atualizarDestinoNoMapa(); $('navegacao').hidden = true; $('lg-destino').hidden = true; }
+      if (antes) {
+        estado.destino = null;
+        atualizarDestinoNoMapa();
+        $('navegacao').hidden = true;
+        $('lg-destino').hidden = true;
+        if (!estado.encerrandoNav) UI.aviso('Os bombeiros encerraram a navegação até "' + antes.nome + '".', 'ok', 7000);
+      }
       return;
     }
     var novo = !antes || antes.id !== d.id;
@@ -941,6 +1183,8 @@
       try { if (navigator.vibrate) navigator.vibrate([300, 120, 300]); } catch (e) { /* ignora */ }
       bipe();
       UI.aviso('Os bombeiros enviaram um destino: ' + d.nome + '.', 'ok', 8000);
+      if (!$('painel-conversa').hidden) fecharConversa();
+      try { $('navegacao').scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { /* ignora */ }
       if (estado.mapa) {
         var pts = [[d.lat, d.lng]];
         if (estado.ultimaLeitura) pts.push([estado.ultimaLeitura.lat, estado.ultimaLeitura.lng]);
@@ -1076,7 +1320,9 @@
     if (!r) return;
     try {
       await C.rpc('encerrar_destino', { p_destino: d.id });
+      estado.encerrandoNav = true;
       definirDestino(null);
+      estado.encerrandoNav = false;
       UI.aviso('Navegação encerrada.', 'ok');
     } catch (e) {
       if (!tratarErroFatal(e)) UI.aviso(e.rede ? 'Sem internet: tente de novo.' : e.message, 'erro');
@@ -1530,24 +1776,43 @@
         (estado.gps === 'ok' || estado.gps === 'fraco')) {
       estado.gps = 'sem_sinal';
     }
+    // Parado, alguns aparelhos só avisam quando há mudança: pede uma leitura nova
+    // a cada 45 s para a posição não envelhecer (o filtro decide se entra na trilha).
+    if (estado.rastreando && estado.ultimaLeitura && estado.gps !== 'negado' && agora - estado.ultimaLeitura.recebidaEm > 45000 &&
+        agora - (estado.leituraPedidaEm || 0) > 45000) {
+      estado.leituraPedidaEm = agora;
+      navigator.geolocation.getCurrentPosition(processarPosicao, function () { /* o observador trata os erros */ },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    }
+    // Alguns aparelhos param de entregar leituras sem avisar: reinicia o observador
+    // (sempre um só) se ficar 90 s sem nada com a tela aberta e a permissão concedida.
+    var ultima = estado.ultimaLeitura ? estado.ultimaLeitura.recebidaEm : 0;
+    if (estado.rastreando && document.visibilityState === 'visible' && estado.permissao !== 'denied' &&
+        estado.gps !== 'negado' && agora - Math.max(ultima, estado.watchIniciadoEm) > CFG.reiniciarGpsMs) {
+      pararWatch();
+      iniciarWatch();
+    }
     atualizarUI();
     agendarNavegacao();
   }
 
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && estado.part && !estado.finalizado) {
-      pedirTelaLigada();
-      enviarSinal();
-      agendarEnvio(0);
-    }
+    if (document.visibilityState !== 'visible' || !estado.part) return;
+    if (estado.finalizado) { if (estado.timerReinclusao) verificarReinclusao(); return; }
+    pedirTelaLigada();
+    enviarSinal();
+    agendarEnvio(0);
+    carregarDestino();
+    carregarEquipe();
+    acompanharPermissao().then(function () { if (estado.permissao === 'granted' && estado.gps === 'negado') religarGps(); });
   });
   window.addEventListener('online', function () {
-    if (estado.part && !estado.finalizado) { enviarSinal(); agendarEnvio(0); reenviarMensagens(); processarFilaFotos(); }
+    if (estado.part && !estado.finalizado) { enviarSinal(); agendarEnvio(0); reenviarMensagens(); processarFilaFotos(); carregarDestino(); }
     atualizarUI();
   });
   window.addEventListener('offline', function () { atualizarUI(); });
   window.addEventListener('beforeunload', function (ev) {
-    if (estado.rastreando) {
+    if (estado.rastreando && !window.GBS_RECARREGANDO) {
       ev.preventDefault();
       ev.returnValue = '';
     }
@@ -1585,10 +1850,7 @@
 
   function pararColeta() {
     estado.rastreando = false;
-    if (estado.watchId != null) {
-      navigator.geolocation.clearWatch(estado.watchId);
-      estado.watchId = null;
-    }
+    pararWatch();
     liberarTelaLigada();
     atualizarUI();
   }
@@ -1596,6 +1858,7 @@
   function finalizar(motivo) {
     estado.finalizado = true;
     pararColeta();
+    estado.filtro.reiniciar();
     clearInterval(estado.timerSinal);
     clearInterval(estado.timerUI);
     clearInterval(estado.timerEquipe);
@@ -1612,7 +1875,9 @@
       estado.canal = null;
     }
     $('alerta-msg').hidden = true;
-    C.local.apagar(CHAVE_PART);
+    var podeVoltar = (motivo === 'removido' || motivo === 'liberado') && estado.part;
+    if (podeVoltar) salvarParticipacao(false, true);   // guarda para uma reinclusão (sem fila nem mensagens)
+    else C.local.apagar(CHAVE_PART);
     C.local.apagar(CHAVE_FILA);
     C.local.apagar(CHAVE_CONF);
     C.local.apagar(CHAVE_MSGS);
@@ -1627,9 +1892,84 @@
       inexistente: ['Participação encerrada', 'A operação foi excluída pelos bombeiros. Este link não funciona mais.'],
     };
     var t = textos[motivo] || textos.encerrada;
+    estado.motivoFim = motivo;
+    estado.fila = [];
+    estado.destino = null;
+    estado.destinoConfirmado = null;
+    $('navegacao').hidden = true;
     $('fim-titulo').textContent = t[0];
     $('fim-texto').textContent = t[1];
+    $('fim-voltar').hidden = true;
+    $('fim-nota').textContent = podeVoltar
+      ? 'Sua localização não está mais sendo compartilhada.'
+      : 'Sua localização não está mais sendo compartilhada. Você já pode fechar esta página.';
+    $('fim-aguardando').hidden = !podeVoltar;
+    clearInterval(estado.timerReinclusao);
+    estado.timerReinclusao = podeVoltar ? setInterval(verificarReinclusao, CFG.reinclusaoMs) : null;
     mostrarTela('encerrado');
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Reinclusão: os bombeiros chamaram de volta                           */
+  /* ------------------------------------------------------------------ */
+  // Removido ou com saída liberada: a página verifica (sem enviar localização)
+  // se o responsável reincluiu este participante. Se sim, oferece o botão para
+  // voltar — o rastreamento só recomeça com o toque da pessoa.
+  async function verificarReinclusao() {
+    if (!estado.part || !estado.finalizado) return;
+    var r;
+    try {
+      r = await C.rpc('sinal_vida', { p_participante: estado.part.participante_id, p_rastreando: false, p_gps: null }, 12000);
+    } catch (e) { return; }
+    if (!r) return;
+    if (r.status === 'ativa') {
+      clearInterval(estado.timerReinclusao);
+      estado.timerReinclusao = null;
+      $('fim-aguardando').hidden = true;
+      $('fim-voltar').hidden = false;
+      prepararAudio();
+      chamarAtencao();
+      $('btn-voltar-busca').focus();
+    } else if (r.status === 'encerrada' || r.status === 'inexistente') {
+      clearInterval(estado.timerReinclusao);
+      estado.timerReinclusao = null;
+      C.local.apagar(CHAVE_PART);
+      finalizar(r.status);
+    }
+  }
+
+  async function voltarParaBusca() {
+    var s = C.local.ler(CHAVE_PART, null);
+    if (!s || s.token !== estado.token) { location.reload(); return; }
+    $('fim-voltar').hidden = true;
+    $('ini-nome').value = s.nome || '';
+    $('ini-cpf').value = mascararCpf(s.cpf || '');
+    $('ini-tel').value = mascararTelefone(s.telefone || '');
+    $('btn-iniciar').textContent = 'CONTINUAR';
+    mostrarTela('inicio');
+    await entrarNaBusca({ nome: s.nome, tipo: s.tipo, cpf: s.cpf, tel: s.telefone });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Diagnóstico do GPS (só neste aparelho; abre com ?diag=1 no link)      */
+  /* ------------------------------------------------------------------ */
+  function abrirDiagnostico() {
+    var f = estado.filtro;
+    var caixa = UI.el('div', { classe: 'diag-tabela' });
+    function render() {
+      caixa.innerHTML = window.GPS.tabelaDiagnostico(f, 80);
+    }
+    render();
+    var resumo = f.resumo().map(function (x) { return x.texto + ': ' + x.qtd; }).join(' · ');
+    var timer = setInterval(render, 2000);
+    var fechar = UI.abrirModal(UI.el('div', { classe: 'modal-diag' }, [
+      UI.el('h2', { id: 'modal-titulo', texto: 'Diagnóstico do GPS' }),
+      UI.el('p', { classe: 'ajuda', texto: 'Fica só neste aparelho; não é enviado. Permissão: ' + estado.permissao + ' · estado: ' + estado.gps +
+        ' · na fila: ' + estado.fila.length + ' ponto(s).' }),
+      UI.el('p', { classe: 'ajuda', texto: resumo || 'Sem leituras ainda.' }),
+      caixa,
+      UI.el('div', { classe: 'modal-acoes' }, [UI.el('button', { classe: 'btn', type: 'button', texto: 'Fechar', onclick: function () { fechar(); } })]),
+    ]), { aoFechar: function () { clearInterval(timer); } });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1645,10 +1985,11 @@
     if (!estado.rastreando) {
       cod = 'parado'; titulo = 'Localização desligada'; sub = 'Toque em CONTINUAR para voltar a ajudar.';
     } else if (estado.gps === 'negado') {
-      cod = 'erro'; titulo = 'A localização foi bloqueada';
-      sub = 'Toque no cadeado ao lado do endereço do site e permita a localização.';
+      cod = 'erro'; titulo = 'A localização está bloqueada';
+      sub = 'Os bombeiros NÃO estão vendo onde você está. Toque em "Como resolver".';
     } else if (estado.gps === 'indisponivel') {
-      cod = 'erro'; titulo = 'O GPS do celular está desligado'; sub = 'Ligue a localização do celular.';
+      cod = 'erro'; titulo = 'A localização do celular está desligada';
+      sub = 'Os bombeiros NÃO estão vendo onde você está. Toque em "Como resolver".';
     } else if (estado.gps !== 'ok' && estado.gps !== 'fraco') {
       cod = 'sem-gps'; titulo = 'Procurando o sinal de GPS…'; sub = 'Se puder, vá para um lugar aberto, longe de paredes e árvores.';
     } else if (net === 'offline' || net === 'falha') {
@@ -1659,6 +2000,10 @@
     } else {
       cod = 'ok'; titulo = 'Os bombeiros estão vendo onde você está'; sub = 'Deixe esta tela aberta.';
     }
+    var acao = $('status-acao');
+    var precisaAjuda = estado.rastreando && (estado.gps === 'negado' || estado.gps === 'indisponivel' ||
+      (estado.gps === 'sem_sinal' && estado.ultimaLeitura == null && Date.now() - estado.watchIniciadoEm > 30000));
+    if (acao.hidden === precisaAjuda) acao.hidden = !precisaAjuda;
     var caixa = $('status-civil');
     if (caixa.getAttribute('data-estado') !== cod) caixa.setAttribute('data-estado', cod);
     if ($('status-titulo').textContent !== titulo) $('status-titulo').textContent = titulo;
