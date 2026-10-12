@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06080a">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="gbs-versao" content="2026-10-12.1">
   <title>Rastreamento GBS — Painel do Responsável</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous">
@@ -178,12 +179,12 @@
               <button class="menu-item btn-minha-pos" type="button" id="btn-minha-pos" aria-pressed="false" title="Compartilhar sua posição com os outros responsáveis desta operação">
                 <span class="ico-pos" aria-hidden="true"></span><span>Minha posição</span><small class="menu-estado" id="minha-pos-estado">desligada</small>
               </button>
+              <p class="menu-nota" id="minha-pos-nota">Liga sozinha ao abrir a operação (se o navegador permitir). Funciona com o painel aberto e a tela ligada: em segundo plano ou com a tela bloqueada o celular pode pausar o envio.</p>
               <button class="menu-item" type="button" id="btn-registrar-foto"><span class="ico-camera" aria-hidden="true"></span><span>Registrar foto</span></button>
               <button class="menu-item" type="button" id="btn-convite"><span class="ico-item" aria-hidden="true">＋</span><span>Convidar participantes</span></button>
               <button class="menu-item" type="button" id="btn-equipe" title="Responsáveis desta operação"><span class="ico-item" aria-hidden="true">◆</span><span>Equipe de responsáveis</span></button>
               <button class="menu-item" type="button" id="menu-central"><span class="ico-msg" aria-hidden="true"></span><span>Mensagens, relatos e fotos</span></button>
-              <button class="menu-item menu-perigo" type="button" id="btn-encerrar"><span class="ico-item" aria-hidden="true">■</span><span>Encerrar operação</span></button>
-              <button class="menu-item menu-perigo" type="button" id="btn-excluir-op" hidden><span class="ico-item" aria-hidden="true">✕</span><span>Excluir operação</span></button>
+              <button class="menu-item" type="button" id="menu-diag-gps"><span class="ico-item" aria-hidden="true">⌖</span><span>Diagnóstico do GPS</span></button>
             </section>
             <section class="menu-grupo" aria-labelledby="mg-areas">
               <h3 id="mg-areas">Áreas e pontos</h3>
@@ -211,8 +212,13 @@
               <button class="menu-item" type="button" id="menu-3d"><span class="ico-item" aria-hidden="true">⛰</span><span>Relevo em 3D</span></button>
               <button class="menu-item" type="button" id="menu-enquadrar"><span class="ico-item" aria-hidden="true">⤢</span><span>Enquadrar todos no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-nomes" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Nomes no mapa</span></button>
-              <button class="menu-item menu-check" type="button" id="opt-legenda" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Legenda</span></button>
-              <button class="menu-item menu-check" type="button" id="opt-lateral" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Lista de participantes</span></button>
+            </section>
+            <!-- Ações que não podem ser desfeitas: sempre no fim, separadas, com confirmação -->
+            <section class="menu-grupo menu-zona-perigo" id="menu-zona-perigo" aria-labelledby="mg-perigo">
+              <h3 id="mg-perigo">Encerrar ou excluir</h3>
+              <button class="menu-item menu-perigo" type="button" id="btn-encerrar"><span class="ico-item" aria-hidden="true">■</span><span>Encerrar operação</span><small class="menu-estado">pede confirmação</small></button>
+              <div class="menu-separador-perigo" aria-hidden="true"></div>
+              <button class="menu-item menu-perigo menu-excluir" type="button" id="btn-excluir-op" hidden><span class="ico-item" aria-hidden="true">✕</span><span>Excluir operação</span><small class="menu-estado">definitivo · digite o nome para confirmar</small></button>
             </section>
           </div>
         </div>
@@ -281,6 +287,11 @@
         </div>
         <ul class="lista-participantes" id="lista-part"></ul>
         <p class="lista-vazia" id="lista-vazia">Nenhum participante ainda. Toque em <b>Convidar</b> para compartilhar o link ou o QR Code.</p>
+        <!-- Removidos e saídas liberadas: o cadastro e a trilha continuam; o responsável pode reincluir -->
+        <details class="grupo-removidos" id="grupo-removidos" hidden>
+          <summary>Fora da operação (<span id="qtd-removidos">0</span>) <small class="muted">— removidos ou com saída liberada; podem ser reincluídos</small></summary>
+          <ul class="lista-participantes lista-removidos" id="lista-removidos"></ul>
+        </details>
       </aside>
 
       <!-- Central de comunicação: mensagens, relatos e fotos -->
@@ -324,6 +335,7 @@
         <div class="ficha-corpo">
           <div class="ficha-bloco" id="ficha-alerta" hidden></div>
           <div class="ficha-bloco" id="ficha-saida" hidden></div>
+          <div class="ficha-bloco ficha-situacao" id="ficha-situacao" hidden></div>
           <div class="ficha-bloco ficha-rapido">
             <p class="ficha-pos" id="ficha-pos"></p>
             <p class="ficha-destino" id="ficha-destino" hidden></p>
@@ -405,6 +417,7 @@
   <script src="js/comunicacao.js"></script>
   <script src="js/interface.js"></script>
   <script src="js/fotos.js"></script>
+  <script src="js/gps.js"></script>
   <script src="js/militar.js"></script>
 </body>
 </html>

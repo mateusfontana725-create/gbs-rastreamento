@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06080a">
   <meta name="robots" content="noindex, nofollow">
+  <meta name="gbs-versao" content="2026-10-12.1">
   <title>Rastreamento GBS — Participante</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="css/estilos.css">
@@ -42,6 +43,15 @@
           <div class="rot">Operação</div>
           <div class="val" id="ini-operacao"></div>
         </div>
+
+        <!-- Localização bloqueada / desligada: explica e permite verificar de novo sem refazer o cadastro -->
+        <section class="cartao secao permissao-caixa" id="ini-permissao" hidden aria-live="polite">
+          <h2 id="perm-titulo"></h2>
+          <p id="perm-texto"></p>
+          <ol class="perm-passos" id="perm-passos"></ol>
+          <button class="btn btn-escuro btn-gigante" type="button" id="perm-verificar">VERIFICAR DE NOVO</button>
+          <button class="btn" type="button" id="perm-recarregar" hidden>Recarregar a página</button>
+        </section>
 
         <form id="form-inicio" class="cartao secao" novalidate>
           <div class="grupo">
@@ -86,23 +96,11 @@
             <strong id="status-titulo">Ligando a localização…</strong>
             <span id="status-sub"></span>
           </div>
+          <button class="btn btn-pequeno status-acao" type="button" id="status-acao" hidden>Como resolver</button>
         </div>
         <p class="quem-sou" id="st-nome"></p>
 
         <div class="aviso-fundo" id="aviso-fundo" hidden></div>
-
-        <!-- Mapa: você e a equipe de bombeiros -->
-        <div class="mapa-civil-caixa">
-          <div id="mapa-civil" role="region" aria-label="Mapa com a sua posição e a dos bombeiros"></div>
-          <button class="btn btn-pequeno btn-onde-estou" type="button" id="btn-onde-estou" aria-label="Mostrar onde estou no mapa">📍 Onde estou</button>
-          <div class="legenda-civil" aria-hidden="true">
-            <span><i class="lg-eu"></i> Você</span>
-            <span><i class="simbolo simbolo-militar"><span>M</span></i> Bombeiro</span>
-            <span><i class="simbolo simbolo-responsavel"><span>R</span></i> Responsável</span>
-            <span class="lg-destino" hidden id="lg-destino"><i>🧭</i> Destino</span>
-          </div>
-        </div>
-        <p class="mapa-civil-nota" id="mapa-nota" hidden></p>
 
         <!-- Navegação até o destino enviado pelos bombeiros -->
         <section class="navegacao" id="navegacao" hidden aria-labelledby="nav-nome">
@@ -125,6 +123,20 @@
             <button class="btn btn-saida-nav" type="button" id="nav-encerrar">Encerrar navegação</button>
           </div>
         </section>
+        <p class="aviso-destino" id="aviso-destino" role="status" hidden></p>
+
+        <!-- Mapa: você e a equipe de bombeiros -->
+        <div class="mapa-civil-caixa">
+          <div id="mapa-civil" role="region" aria-label="Mapa com a sua posição e a dos bombeiros"></div>
+          <button class="btn btn-pequeno btn-onde-estou" type="button" id="btn-onde-estou" aria-label="Mostrar onde estou no mapa">📍 Onde estou</button>
+          <div class="legenda-civil" aria-hidden="true">
+            <span><i class="lg-eu"></i> Você</span>
+            <span><i class="simbolo simbolo-militar"><span>M</span></i> Bombeiro</span>
+            <span><i class="simbolo simbolo-responsavel"><span>R</span></i> Responsável</span>
+            <span class="lg-destino" hidden id="lg-destino"><i>🧭</i> Destino</span>
+          </div>
+        </div>
+        <p class="mapa-civil-nota" id="mapa-nota" hidden></p>
 
         <!-- Ações principais -->
         <div class="acoes-civil">
@@ -163,6 +175,7 @@
             Aguarde os bombeiros liberarem. Até lá, deixe esta tela aberta.
           </div>
           <button class="btn btn-saida" type="button" id="btn-saida">Quero sair da busca</button>
+          <button class="btn btn-pequeno btn-link" type="button" id="btn-diag" hidden>Diagnóstico do GPS</button>
         </div>
       </section>
 
@@ -171,7 +184,13 @@
         <div class="cartao secao">
           <h2 id="fim-titulo">Operação encerrada</h2>
           <p id="fim-texto"></p>
-          <p class="muted">Sua localização não está mais sendo compartilhada. Você já pode fechar esta página.</p>
+          <p class="muted" id="fim-nota">Sua localização não está mais sendo compartilhada. Você já pode fechar esta página.</p>
+          <p class="muted" id="fim-aguardando" hidden>Se os bombeiros chamarem você de volta, esta tela avisa. Pode deixá-la aberta.</p>
+        </div>
+        <div class="cartao secao voltar-busca" id="fim-voltar" hidden role="alert">
+          <h2>Os bombeiros chamaram você de volta</h2>
+          <p>Você foi incluído de novo nesta busca. Toque no botão para voltar a compartilhar sua localização.</p>
+          <button class="btn btn-primario btn-gigante" type="button" id="btn-voltar-busca">VOLTAR PARA A BUSCA</button>
         </div>
       </section>
     </main>
@@ -214,6 +233,7 @@
   <script src="js/interface.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script src="js/fotos.js"></script>
+  <script src="js/gps.js"></script>
   <script src="js/civil.js"></script>
 </body>
 </html>
