@@ -143,13 +143,94 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
   Também há a aba **Fotos** na central (galeria) e a seção **Fotos** na ficha de cada participante.
 - A foto é **um registro de uma posição**: não entra no histórico nem altera a trilha.
 
+### Setores de busca (áreas)
+
+- **Criar** (menu **Ferramentas → Áreas e pontos**):
+  - **Novo setor por raio**: toque no centro do setor no mapa, informe o raio em metros (5 m a 50 km);
+    o círculo aparece na hora e a área aproximada é calculada.
+  - **Novo setor desenhando a área**: toque nos cantos da área (mínimo 3; há **Desfazer**) e em
+    **Concluir**; o contorno é fechado e preenchido com cor semitransparente.
+- Cada setor tem **nome/número/código**, **cor** (8 opções bem distintas entre si e das trilhas),
+  **responsável** (um participante da operação) e/ou **equipe** (texto livre, ex.: "Equipe Alfa"),
+  **situação** (**Pendente** — contorno tracejado, **Em andamento**, **Concluído** — preenchimento mais
+  claro), observações, **área aproximada** (m², hectares ou km²), quem criou e quando, quem alterou e quando.
+- **Editar**: tocar no setor (ou em **Lista de setores e pontos**) abre os detalhes: botões de situação,
+  **Editar** (nome, cor, responsável, equipe, observações, raio), **Ajustar limites** (arrastar os cantos;
+  ◇ cria um canto novo; tocar num canto remove; no círculo, arrastar o centro e mudar o raio),
+  **Excluir** (com confirmação) e **Enviar o centro como destino**.
+- Os setores ficam **abaixo** das trilhas e dos marcadores (não escondem participantes nem trilhas) e
+  podem ser ocultados em **Camadas do mapa → Setores de busca**.
+- **Área delimitada × área percorrida**: criar um setor ou alguém passar perto dele **não** o marca como
+  vasculhado. Os detalhes mostram, separado, **"Percorrido (estimativa pelos rastros GPS)"**: a parte do
+  setor que ficou a até 25 m de algum rastro (rastros com precisão pior que 100 m não contam). É só uma
+  estimativa; o setor só fica **Concluído** quando um responsável marca.
+- O participante atribuído vê o contorno do **seu** setor no mapa do celular ("Seu setor: A-1").
+- Ficam salvos no Supabase (tabela `setores`) e aparecem em tempo real para os outros responsáveis.
+
+### Pontos de interesse
+
+- **Ferramentas → Marcar ponto de interesse**: toque no local (ou **Usar minha posição**), escolha a
+  categoria e dê um nome. Categorias e ícones (placa com letra):
+  **U** Última localização conhecida · **?** Possível localização da vítima · **V** Vestígio ou objeto
+  encontrado · **!** Área de risco/perigo · **E** Ponto de encontro · **+** Vítima encontrada · **•** Outro.
+- Cada ponto guarda título, categoria, coordenadas (editáveis no formulário), descrição, data e hora, quem
+  registrou e, se veio de um relato, **quem relatou** (botão **Registrar como ponto de interesse** na janela
+  do relato). Os detalhes mostram a **altitude aproximada** (modelo digital de terreno).
+- **Foto**: **Anexar foto** nos detalhes do ponto (câmera ou arquivo, com o mesmo fluxo e as mesmas
+  regras das fotos: armazenamento privado, local real da foto).
+- Editar: qualquer responsável da operação. **Excluir** (com confirmação): quem marcou, quem criou a
+  operação ou um administrador — a mesma regra vale para setores; o banco confere.
+- Participantes **não** veem a lista de pontos. No celular deles aparecem **somente** os **pontos de
+  encontro** e as **áreas de risco** (nunca "última localização" ou dados sobre a vítima).
+
+### Navegação até um destino
+
+1. O responsável escolhe o destino: **Enviar como destino** nos detalhes de um ponto, **🧭 Destino** na
+   ficha do participante (ponto de interesse ou **Escolher no mapa**), **Enviar o centro como destino**
+   num setor, ou **Ferramentas → Enviar destino a participantes**; marca para quem (ou **Marcar todos**).
+2. No celular do participante aparece o cartão **🧭 IR ATÉ** (com vibração e aviso) e o destino no mapa,
+   com uma linha tracejada amarela **em linha reta**.
+3. O cartão mostra o **nome**, a **distância em linha reta**, a **direção** (ex.: "para o Nordeste, 45°"),
+   as **coordenadas** e uma seta. Atualiza a cada leitura do GPS.
+   - **Bússola**: no Android (Chrome) a seta gira com o celular ("siga a seta"). No iPhone aparece o botão
+     **Usar a bússola do celular** (o iOS exige permissão). Sem bússola confiável, a seta aponta em
+     relação ao **Norte (N)** — e o texto diz isso.
+   - **Sem GPS**: mostra "Sem GPS" e não calcula nada. **GPS impreciso** (± 50 m ou pior): avisa que a
+     distância e a direção são aproximadas. Ao chegar (a até 15 m ou dentro da precisão): "Você chegou".
+   - Sempre avisa: **linha reta não é caminho** — conferir o terreno e seguir os bombeiros.
+4. **Rota por estradas/trilhas**: o botão **Rota no app de mapas ↗** abre o Google Maps (a pé) com o
+   destino. O aplicativo **não calcula rota nem tempo de chegada**: quem calcula é o app de mapas, quando
+   houver caminho mapeado. Em mata sem trilhas, vale só a direção em linha reta.
+5. **Encerrar navegação**: pelo participante (botão no cartão) ou pelo responsável (ficha → **Encerrar**).
+   A ficha mostra o destino ativo e desenha a linha até ele. Um novo destino substitui o anterior.
+
+### Mapa topográfico e relevo em 3D
+
+- **Camadas do mapa → Topográfico (curvas de nível)**: OpenTopoMap, com curvas de nível, cotas de altitude
+  e sombreamento do relevo. Trilhas, marcadores, setores, pontos, fotos e relatos continuam por cima, e o
+  zoom vai até 19 (acima de 17 o servidor não tem ladrilhos e eles são ampliados).
+- **Visualização → Relevo em 3D**: abre uma tela com **relevo 3D real**, calculado a partir de um **modelo
+  digital de terreno** (Terrain Tiles da AWS — SRTM e outras fontes; resolução de cerca de 30 m no
+  Brasil), com **exagero vertical de 1,5×** (informado na tela). Inclina e gira com dois dedos (ou botão
+  direito do mouse); tocar no terreno mostra a **altitude aproximada**. Mostra setores, trilhas,
+  participantes e pontos **do momento em que foi aberto** (botão **Atualizar posições**). É carregado só
+  quando aberto (biblioteca MapLibre GL, ~800 KB) e precisa de WebGL; sem suporte, a tela avisa e o mapa
+  normal continua funcionando. O mapa principal (Leaflet) não foi trocado.
+
 ### Organização do painel
 
 - A barra superior tem só **Mensagens** e **Ferramentas** (☰). O menu Ferramentas agrupa:
   - **Operação**: Minha posição, Registrar foto, Convidar participantes, Equipe de responsáveis,
     Mensagens/relatos/fotos, Encerrar operação e Excluir operação (só para quem pode);
-  - **Camadas do mapa**: Mapa (OpenStreetMap), Relevo, Satélite, Fotos no mapa, Relatos no mapa, Trilhas de todos;
-  - **Visualização**: Enquadrar todos, Nomes no mapa, Legenda, Lista de participantes.
+  - **Áreas e pontos**: Novo setor por raio, Novo setor desenhando a área, Marcar ponto de interesse,
+    Enviar destino a participantes, Lista de setores e pontos;
+  - **Camadas do mapa**: Mapa (OpenStreetMap), Topográfico (curvas de nível), Satélite, Setores de busca,
+    Pontos de interesse, Fotos no mapa, Relatos no mapa, Trilhas de todos;
+  - **Visualização**: Relevo em 3D, Enquadrar todos, Nomes no mapa, Legenda, Lista de participantes.
+- **Trilhas**: militares em vermelho (contínua), responsáveis em ciano (pontilhada) e **civis em roxo**
+  (tracejada, com contorno claro por baixo para aparecer sobre mata, satélite e topográfico). Cada civil
+  tem um tom de roxo/magenta diferente, e a trilha de quem está com a ficha aberta fica mais grossa. O
+  marcador do civil continua sendo o círculo verde **C**.
   Fecha ao escolher uma opção, ao tocar fora, no **Fechar** ou com **Esc**. No celular, abre como uma
   folha na parte de baixo da tela. As preferências do mapa ficam lembradas no aparelho.
 - Ficam sempre no mapa: **zoom (+/−)**, **⤢ enquadrar todos** e a escala.
@@ -206,7 +287,10 @@ rastreamento-sar/
 │   ├── config.js               entrega ao navegador só a URL e a chave PÚBLICA (de variáveis de ambiente)
 │   ├── limpeza.js              limpeza diária dos dados vencidos (usa a chave SECRETA, só no servidor)
 │   └── responsaveis.js         cria login e redefine senha de responsáveis (só administradores; chave SECRETA)
-├── supabase/schema.sql         tabelas, regras de segurança (RLS), funções, tempo real e bucket de fotos
+├── supabase/
+│   ├── schema.sql              instalação completa e idempotente (inclui todas as migrações)
+│   └── migracoes/
+│       └── 003_setores_pontos_navegacao.sql   só setores, pontos de interesse e destinos
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
 └── package.json
@@ -222,6 +306,16 @@ rastreamento-sar/
    **Run**. Deve terminar sem erros.
    **Já tinha publicado uma versão anterior?** Execute o `schema.sql` novo do mesmo jeito: ele
    atualiza tabelas, funções e regras **sem apagar** operações nem dados existentes.
+   Para aplicar **só** a parte nova de setores, pontos de interesse e navegação, use
+   `supabase/migracoes/003_setores_pontos_navegacao.sql` (também idempotente). O que ela cria:
+   - tabelas `setores`, `pontos_interesse` e `destinos` (ligadas à operação, apagadas junto com ela);
+   - RLS: só os responsáveis da operação leem; ninguém grava direto pelo navegador;
+   - funções: `salvar_setor`, `excluir_setor`, `salvar_ponto`, `excluir_ponto`, `definir_destino`,
+     `encerrar_destino`, `mapa_do_participante` (+ auxiliares `pode_excluir_registro`,
+     `nome_responsavel_atual`, `vertices_validos`);
+   - gatilho que apaga setores, pontos e destinos quando os dados da operação são apagados (retenção);
+   - publicação das três tabelas no Realtime.
+   Nenhuma tabela existente é alterada.
 3. Ative o ingresso dos participantes: **Authentication → Sign In / Providers** (ou **Providers**) →
    ligue **Allow anonymous sign-ins** → **Save**.
    *Cada celular recebe uma identidade anônima; ela só serve para ingressar com o token do link.*
@@ -246,7 +340,8 @@ rastreamento-sar/
    - **Publishable key** (`sb_publishable_…`) — ou, em projetos antigos, a **anon key**;
    - **Secret key** (`sb_secret_…`) — ou, em projetos antigos, a **service_role key**. **Nunca** coloque esta em arquivos do site.
 8. (Conferência) Em **Database → Publications → supabase_realtime**, as tabelas `participantes`,
-   `posicoes`, `mensagens` e `fotos` devem aparecer marcadas. O `schema.sql` já faz isso.
+   `posicoes`, `mensagens`, `fotos`, `setores`, `pontos_interesse` e `destinos` devem aparecer marcadas.
+   O `schema.sql` (e a migração 003) já fazem isso.
 9. (Conferência) Em **Storage**, deve existir o bucket **`fotos`**, **privado** (não público), com
    limite de 10 MB e só `image/jpeg`. O `schema.sql` cria o bucket e as regras de acesso
    (`gbs_fotos_enviar`, `gbs_fotos_ver`, `gbs_fotos_apagar`). Se o SQL Editor recusar a parte do
@@ -374,6 +469,7 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 | Coordenadas não públicas | participantes **não leem** posições nem trilhas pela base de dados. O mapa do participante usa só a função `equipe_no_mapa`, que devolve a **última posição** dos militares e responsáveis da **mesma operação** (sem nome, CPF, telefone ou trilha; posições com mais de 15 min não vão; responsáveis só quando compartilham "Minha posição"), e nunca a de outros civis |
 | Mensagens e relatos | o participante só lê a própria conversa; os responsáveis leem as da operação. Envio só pela função `participante_enviar_mensagem` (valida participante, operação ativa, tipo, texto ≤ 1000 caracteres, coordenadas; limite de 20 por minuto; reenvio sem duplicar) |
 | Fotos | bucket **privado**: não existe link público. A imagem só é vista por **link temporário assinado (1 h)**, gerado apenas para os responsáveis da operação ou para o próprio autor. O envio só é aceito na pasta `operação/participante/` do próprio participante, com a operação ativa, JPEG até 10 MB; o registro (`registrar_foto`) confere que o arquivo existe e valida as coordenadas |
+| Setores, pontos e destinos | leitura só pelos responsáveis da operação (RLS); gravação só pelas funções, que conferem a equipe da operação; excluir só por quem criou o registro, quem criou a operação ou um administrador; participantes recebem só o próprio setor, pontos de encontro/risco e o próprio destino (`mapa_do_participante`); um destino só é enviado a participante da mesma operação |
 | Exclusão de operação | só o criador ou um administrador da equipe (`excluir_operacao`, verificado no banco); transação única; arquivos removidos do Storage com fila de pendências e limpeza diária; tokens invalidados na hora |
 | Validação de dados | latitude/longitude/precisão/horário validados no servidor; lote máximo de 500 pontos; orientação até 500 caracteres; limite de 60 orientações por minuto e de 300 participantes por operação |
 | Segredos | só a chave **pública** chega ao navegador (via `/api/config`, lida de variável de ambiente). A chave secreta fica no servidor (`/api/limpeza`) |
@@ -382,6 +478,10 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 
 **Domínio próprio no Supabase**: se usar um domínio personalizado no Supabase, acrescente-o ao
 `connect-src` **e ao `img-src`** (links assinados das fotos) da política CSP em `vercel.json`.
+
+**CSP e o relevo 3D**: o 3D carrega os ladrilhos por `fetch` e usa um *web worker* criado pela própria
+biblioteca; por isso a CSP permite `connect-src` aos servidores de mapa/terreno e `worker-src blob:`.
+Os scripts continuam restritos aos CDNs com SRI (a biblioteca 3D também tem verificação de integridade).
 
 ---
 
@@ -407,6 +507,11 @@ Estas limitações são da plataforma web móvel, não do código, e estão comu
 4. **iPhone (Safari)**: a localização com a tela bloqueada é ainda mais restrita, e as notificações
    web só funcionam com o site instalado na tela inicial (iOS 16.4+).
 5. **Precisão**: depende do aparelho e do céu aberto. Em mata fechada ou entre prédios, ±20–50 m é comum.
+   Isso vale também para a **distância e a direção** da navegação e para a **cobertura estimada** dos setores.
+6. **Bússola** (navegação): depende do sensor do celular; perto de metal ou de veículos pode errar. No
+   iPhone exige permissão. Sem bússola, a seta aponta em relação ao Norte.
+7. **Altitude** (pontos e 3D): é a do **modelo de terreno** (≈ 30 m de resolução), não a medida pelo
+   GPS; em encostas e vales estreitos pode diferir dezenas de metros.
 6. **Fotos e mensagens com a página fechada**: na página do participante, ficam guardadas no aparelho e
    são enviadas quando ele voltar à página. No painel do responsável, a fila de fotos fica só na memória:
    o painel avisa antes de ser fechado com foto pendente.
@@ -461,13 +566,16 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 19 | No civil, **TIRAR FOTO** → conferir → **SALVAR FOTO** | a câmera aparece no mapa no ponto; tocar abre a foto com autor, horários e coordenadas; **Ampliar** mostra em tela cheia |
 | 20 | Repetir com o celular em modo avião | a foto fica "Na fila"; ao voltar a internet, é enviada sozinha |
 | 21 | **Ferramentas**: trocar camada, ocultar nomes, ocultar a lista | cada opção funciona e o menu fecha; com a lista oculta, o mapa ocupa a tela e **« Participantes** reabre |
+| 23 | **Ferramentas → Novo setor por raio**: tocar no centro, raio 300 m, atribuir a um civil; depois desenhar outro setor por cantos | os dois aparecem com nome e situação; o civil vê "Seu setor" no celular; recarregar a página não os perde |
+| 24 | Marcar um **Ponto de encontro** e **Enviar como destino** ao civil; ele anda em direção ao ponto | o celular mostra distância e direção que diminuem/atualizam; testar com o GPS desligado (aviso "Sem GPS") |
+| 25 | Trocar para **Topográfico** e abrir **Relevo em 3D** numa região com morros | curvas de nível visíveis com trilhas e setores por cima; o 3D mostra os morros e a altitude ao tocar |
 | 22a | No celular do civil, olhar o mapa com um militar andando e o responsável com "Minha posição" ligada | aparecem o ponto azul (você), o **M** vermelho e o **R** ciano; outros civis não aparecem |
 | 22b | No civil, tocar **FALAR COM OS BOMBEIROS**, escrever e enviar; responder pelo painel (ficha → Mensagens) | a conversa abre só ao tocar; a resposta chega como "Bombeiros" e o botão mostra o número de novas |
 | 22 | Criar uma operação de teste, registrar dados e **Excluir operação** (digitando o nome) | some da lista; o link/QR do participante para de funcionar; no Supabase, **Storage → fotos** não tem mais a pasta da operação |
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (214 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+- **Backend (254 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
   supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda).
   Foram verificadas as regras de RLS e de permissão (intruso, outro responsável, participante de
   outra operação, acesso sem login), a validação e a deduplicação de posições, o tipo civil/militar
@@ -479,6 +587,14 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   mensagens e relatos dos participantes (validação, limite, reenvio sem duplicar, "lida por",
   isolamento), fotos (regras do Storage, caminho, registro, links assinados, quem vê) e a exclusão de
   operação (permissões, transação, fila de arquivos, limpeza diária, isolamento das outras operações).
+- **Setores, pontos, navegação, topográfico e 3D no navegador (42 verificações)**: criação por raio e
+  por polígono, área, persistência após recarregar, situação, cobertura estimada, ajuste de limites
+  arrastando cantos, exclusão com confirmação, pontos por categoria com altitude, relato que vira
+  ponto, destino enviado ao celular (distância, direção, coordenadas, atualização ao andar, GPS
+  indisponível e impreciso, encerrar), setor e pontos visíveis só no que é permitido ao civil, trilhas
+  civis em roxo com contorno, topográfico mantendo todas as camadas, visão 3D com WebGL e altitude, e
+  uso no celular — com a CSP real e sem erros. No backend, mais 40 verificações (254 no total) de
+  permissões, validações, isolamento entre operações e limpeza.
 - **Ponta a ponta (142 verificações)**: no Chromium, com o painel no computador, no tablet e no
   celular (em pé e deitado), dois celulares Android simulados com GPS em movimento e dois
   responsáveis na mesma operação. Cobre todos os itens da tabela acima (inclusive mensagens, relatos,
@@ -503,7 +619,14 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   uso operacional, confira no painel do Supabase se o projeto está ativo antes de cada operação,
   ou considere o plano Pro, que não pausa.
 - O plano Hobby do Vercel é para uso não comercial; para uso institucional, avalie o plano Pro.
-- Os mapas usam os servidores públicos do OpenStreetMap, OpenTopoMap e Esri, que têm políticas de uso
-  justo. Para uso intenso, contrate um provedor de mapas.
+- Os mapas usam servidores públicos com **políticas de uso justo**, sem chave de API:
+  - **OpenStreetMap** (mapa padrão) — <https://operations.osmfoundation.org/policies/tiles/>;
+  - **OpenTopoMap** (topográfico, CC-BY-SA) — uso leve, sem garantia de disponibilidade;
+  - **Esri World Imagery** (satélite) — os termos da Esri pedem conta ArcGIS para uso em produção;
+  - **Terrain Tiles / AWS Open Data** (relevo 3D e altitude) — gratuito, atribuição exigida (já exibida no 3D);
+  - **Google Maps** (botão "Rota no app de mapas") — só abre o app/site do usuário; nenhuma chave é usada.
+  Para uso intenso ou institucional, contrate um provedor de mapas (ex.: MapTiler, Stadia, Esri) e troque
+  as URLs em `public/js/militar.js` (`criarMapa` e `BASES_3D`) e na CSP do `vercel.json`. Nenhuma chave
+  ou cadastro é necessário para o que foi implementado.
 - Sem sinal de celular não há rastreamento ao vivo, e nenhuma tecnologia web contorna isso. Em áreas
   remotas, a fila offline completa a trilha quando o participante volta a ter sinal.

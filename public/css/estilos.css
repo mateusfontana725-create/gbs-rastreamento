@@ -311,6 +311,8 @@ body.no-painel { overflow: hidden; }
 /* A cor dos militares é fixada aqui (vermelho), sobrepondo a cor enviada pelo script. */
 .simbolo-militar { background-color: var(--militar) !important; }
 .simbolo-civil { border-radius: 50%; background: var(--civil); }
+/* O marcador do civil continua VERDE; só a trilha é roxa (tons por participante). */
+.simbolo-civil { background-color: var(--civil) !important; }
 .simbolo > span { display: block; line-height: 1; }
 /* responsável: losango ciano */
 .simbolo-responsavel {
@@ -340,11 +342,12 @@ body.no-painel { overflow: hidden; }
 .mk.ajuda .mk-rotulo { background: var(--ajuda); color: #0a0d10; border-color: #000; }
 .mk.ajuda .mk-rotulo small { color: #3f3200; }
 .mk.selecionado .simbolo { box-shadow: 0 0 0 3px var(--acento), 0 0 0 5px #000; }
-.esconder-rotulos .mk-rotulo { display: none; }
+.esconder-rotulos .mk-rotulo, .esconder-rotulos .rotulo-setor, .esconder-rotulos .mk-poi-rotulo { display: none; }
 
 /* Trilhas: militares em vermelho (contínua), civis em verde vivo (tracejada) — legíveis no mapa escuro */
 path.trilha-militar { stroke: var(--militar); }
-path.trilha-civil { stroke: var(--civil); }
+/* civis: cada um com seu tom de roxo (definido no script); contorno claro por baixo (.trilha-halo) */
+path.trilha-halo { stroke-linecap: round; }
 path.trilha-responsavel { stroke: var(--responsavel); }
 path.circulo-precisao { stroke: #e8edf2; fill: #e8edf2; }
 
@@ -1315,3 +1318,170 @@ body.conversa-aberta { overflow: hidden; }
 .painel-conversa .chat-form textarea.campo { min-height: 52px; font-size: 1.05rem; }
 .painel-conversa .chat-form .btn { min-height: 52px; }
 .painel-conversa .chat-vazio { flex: 1; }
+
+/* =====================================================================
+ * SETORES DE BUSCA, PONTOS DE INTERESSE, DESTINO E RELEVO 3D
+ * ===================================================================== */
+/* Rótulo do setor no centro da área */
+.leaflet-tooltip.rotulo-setor {
+  background: rgba(6, 8, 10, .82); color: #fff; border: 1px solid rgba(255, 255, 255, .35); border-radius: 4px;
+  box-shadow: none; padding: 1px 6px; font-size: 11.5px; font-weight: 800; letter-spacing: .02em; white-space: nowrap;
+}
+.leaflet-tooltip.rotulo-setor::before { display: none; }
+.setor-legenda { display: inline-block; width: 18px; height: 12px; border: 2px dashed #3b82f6; background: rgba(59, 130, 246, .15); border-radius: 2px; }
+
+/* Ponto de interesse: placa com letra da categoria e ponta embaixo */
+.mk-poi-wrap { background: none; border: 0; }
+.mk-poi {
+  position: relative; display: inline-grid; place-items: center; min-width: 26px; height: 22px; padding: 0 5px;
+  border-radius: 5px; border: 2px solid #fff; box-shadow: 0 0 0 1.5px #000, 0 2px 6px rgba(0, 0, 0, .7);
+  font: 900 13px/1 var(--fonte); color: #fff; background: #64748b;
+}
+.mk-poi-wrap .mk-poi { position: absolute; left: -13px; top: -30px; }
+.mk-poi-wrap .mk-poi::after {
+  content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -5px; border: 5px solid transparent; border-top: 6px solid #fff;
+}
+.mk-poi-rotulo {
+  position: absolute; left: 16px; top: -30px; white-space: nowrap; background: rgba(6, 8, 10, .9); color: #fff;
+  border: 1px solid #3d4a57; border-radius: 3px; padding: 0 5px; font-size: 11px; font-weight: 700; line-height: 18px; pointer-events: none;
+}
+.poi-ULTIMA_LOCALIZACAO { background: #f8fafc; color: #0a0d10; }
+.poi-POSSIVEL_LOCALIZACAO { background: #fbbf24; color: #0a0d10; }
+.poi-VESTIGIO { background: #ec4899; }
+.poi-RISCO { background: #dc2626; border-color: #facc15 !important; }
+.poi-ENCONTRO { background: #2563eb; }
+.poi-VITIMA_ENCONTRADA { background: #10b981; color: #052e16; }
+.poi-OUTRO { background: #64748b; }
+.leaflet-marker-icon.destaque .mk-poi { animation: destaque-mk .7s ease-in-out 5; }
+.legenda .mk-poi-legenda { min-width: 18px; height: 15px; font-size: 9px; border-width: 1.5px; padding: 0 3px; }
+
+/* Barra do modo de desenho */
+.barra-desenho {
+  position: absolute; z-index: 1200; left: 50%; top: 10px; transform: translateX(-50%); width: min(640px, calc(100% - 120px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(18, 23, 28, .96); border: 2px solid #facc15; box-shadow: var(--sombra); color: #fff;
+}
+.barra-desenho-texto { flex: 1 1 220px; font-weight: 800; }
+.barra-desenho-botoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.barra-desenho .campo-raio { width: 110px; min-height: 38px; font-size: 1rem; padding: 4px 8px; }
+#mapa.modo-desenho, #mapa.modo-desenho .leaflet-interactive { cursor: crosshair; }
+.vertice-wrap { background: none; border: 0; }
+.vertice { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 3px; background: #facc15; border: 2px solid #000; cursor: move; }
+.vertice-meio {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; transform: rotate(45deg);
+  background: rgba(250, 204, 21, .45); border: 2px solid #facc15; cursor: copy;
+}
+@media (pointer: coarse) {
+  .vertice { left: -14px; top: -14px; width: 28px; height: 28px; }
+  .vertice-meio { left: -11px; top: -11px; width: 22px; height: 22px; }
+}
+
+/* Formulários e detalhes */
+.chip-cor { display: inline-block; width: 16px; height: 16px; border-radius: 4px; border: 2px solid #fff; vertical-align: middle; flex: none; }
+.cores-setor { display: flex; flex-wrap: wrap; gap: 8px; }
+.cor-opcao { position: relative; }
+.cor-opcao input { position: absolute; opacity: 0; inset: 0; }
+.cor-opcao span { display: block; width: 34px; height: 34px; border-radius: 8px; border: 3px solid transparent; box-shadow: 0 0 0 1px #000; cursor: pointer; }
+.cor-opcao input:checked + span { border-color: #fff; box-shadow: 0 0 0 2px var(--acento); }
+.cor-opcao input:focus-visible + span { outline: 3px solid var(--acento); outline-offset: 2px; }
+.status-setor { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+.status-setor .btn { white-space: normal; line-height: 1.1; }
+.status-setor .status-concluido.btn-ativo { background: var(--ok); border-color: var(--ok); color: #fff; }
+.status-setor .status-pendente.btn-ativo { background: var(--superficie-3); border-color: var(--texto-2); color: var(--texto); }
+.nota-cobertura { display: grid; gap: 4px; background: rgba(59, 130, 246, .12); border-left-color: #3b82f6; color: #dbeafe; margin: 0 0 12px; }
+.acoes-detalhe .btn { flex: 1 1 150px; }
+.cat-pontos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cat-ponto { position: relative; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px; border: 2px solid var(--borda-forte); border-radius: 8px; cursor: pointer; background: #070a0c; }
+.cat-ponto input { position: absolute; opacity: 0; inset: 0; cursor: pointer; }
+.cat-ponto:has(input:checked) { border-color: var(--acento); background: var(--alerta-claro); }
+.cat-ponto:has(input:focus-visible) { outline: 3px solid var(--acento); outline-offset: 2px; }
+.cat-ponto .mk-poi { flex: none; }
+.cat-ponto-txt { font-size: .85rem; font-weight: 700; line-height: 1.15; }
+@media (max-width: 420px) { .cat-pontos { grid-template-columns: 1fr; } }
+.detalhe-ponto h2 .mk-poi, .item-area .mk-poi { vertical-align: middle; }
+.ponto-foto { max-width: 220px; margin: 10px 0; }
+.linha-rotulo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.linha-rotulo .rotulo { margin: 0; }
+.lista-destino { display: grid; max-height: 40vh; overflow-y: auto; border: 1px solid var(--borda); border-radius: var(--raio); padding: 0 10px; }
+.lista-destino .linha-opcao { padding: 8px 0; border-bottom: 1px solid var(--borda); flex-wrap: wrap; }
+.lista-destino .linha-opcao:last-child { border-bottom: 0; }
+#destino-no-mapa { width: 100%; margin-bottom: 12px; }
+
+/* Lista de setores e pontos (gaveta à esquerda, como a central) */
+.lista-areas { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.item-area {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; text-align: left; cursor: pointer;
+  background: var(--superficie-2); border: 1px solid var(--borda); border-radius: var(--raio); color: var(--texto);
+}
+.item-area:hover, .item-area:focus-visible { border-color: var(--acento); outline: none; }
+.item-area-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.item-area-txt strong { overflow-wrap: anywhere; }
+.item-area-txt small { font-size: .78rem; }
+
+/* Ficha: destino ativo do participante */
+.ficha-destino { margin: 0 0 10px; padding: 6px 10px; border-radius: 6px; background: rgba(250, 204, 21, .12); border-left: 4px solid #facc15; color: #fef9c3; font-size: .9rem; }
+.mk-destino-wrap { background: none; border: 0; }
+.mk-destino { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #facc15; border: 2px solid #000; font-size: 16px; }
+
+/* Relevo em 3D */
+.visao-3d { position: fixed; inset: 0; z-index: 2300; display: flex; flex-direction: column; background: var(--fundo); }
+.visao-3d-cabeca { position: relative; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: max(8px, env(safe-area-inset-top)) 12px 12px; background: var(--barra); }
+.visao-3d-cabeca::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: var(--faixa-sinal); }
+.visao-3d-cabeca h2 { flex: 1; font-family: var(--fonte-titulo); text-transform: uppercase; letter-spacing: .05em; font-size: 1.05rem; color: #fff; }
+.visao-3d-mapa { flex: 1; min-height: 0; background: #0e1318; }
+.visao-3d-nota { flex: none; margin: 0; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); font-size: .82rem; color: var(--texto-2); background: var(--superficie); border-top: 1px solid var(--borda); }
+.mk3d { cursor: default; }
+.mk3d .simbolo { width: 22px; height: 22px; font-size: 11px; }
+.mk3d.antigo .simbolo { opacity: .5; filter: grayscale(.7); }
+.mk3d-poi .mk-poi { position: relative; }
+.popup-3d .maplibregl-popup-content { background: var(--superficie); color: var(--texto); font-weight: 700; border: 1px solid var(--borda-forte); }
+.popup-3d .maplibregl-popup-tip { border-top-color: var(--superficie) !important; border-bottom-color: var(--superficie) !important; }
+.popup-3d .maplibregl-popup-close-button { color: var(--texto); font-size: 18px; padding: 0 6px; }
+@media (max-width: 599px) {
+  .barra-desenho { left: 8px; right: 8px; transform: none; width: auto; top: 8px; }
+  .barra-desenho-botoes { width: 100%; }
+  .barra-desenho-botoes .btn { flex: 1 1 0; }
+  .acoes-detalhe .btn { flex: 1 1 45%; }
+}
+
+/* =====================================================================
+ * PÁGINA DO PARTICIPANTE — NAVEGAÇÃO ATÉ O DESTINO
+ * ===================================================================== */
+.navegacao {
+  margin: 0 0 12px; padding: 12px; border-radius: 12px; background: #221d05; border: 2px solid #facc15; color: #fef9c3;
+}
+.navegacao.chegou { background: #0f2a1a; border-color: #22c55e; color: #dcfce7; }
+.navegacao.sem-gps { background: #2a1214; border-color: var(--perigo); color: #fee2e2; }
+.nav-topo { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.nav-rotulo { font-family: var(--fonte-titulo); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; font-size: .85rem; opacity: .9; }
+.nav-topo strong { font-family: var(--fonte-titulo); font-size: 1.3rem; letter-spacing: .02em; overflow-wrap: anywhere; color: #fff; }
+.nav-corpo { display: flex; align-items: center; gap: 16px; }
+.nav-bussola {
+  position: relative; width: 96px; height: 96px; flex: none; border-radius: 50%;
+  border: 3px solid currentColor; background: rgba(0, 0, 0, .35);
+}
+.nav-bussola.inativa { opacity: .35; }
+.nav-seta {
+  position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -36px 0 0 -16px;
+  border-left: 16px solid transparent; border-right: 16px solid transparent; border-bottom: 56px solid #facc15;
+  transform-origin: 16px 36px; transition: transform .25s ease-out; filter: drop-shadow(0 0 2px #000);
+}
+.navegacao.chegou .nav-seta { border-bottom-color: #22c55e; }
+.nav-norte {
+  position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; display: grid; place-items: center;
+  font: 900 12px/1 var(--fonte); color: #fff; background: var(--primaria); border-radius: 50%; transform: translateY(-34px);
+}
+.nav-bussola.com-bussola .nav-norte { transition: transform .25s ease-out; }
+.nav-info { min-width: 0; }
+.nav-dist { font-family: var(--fonte-titulo); font-size: 2.2rem; font-weight: 900; line-height: 1; color: #fff; }
+.nav-dir { margin-top: 4px; font-weight: 700; }
+.nav-coord { margin-top: 4px; font-size: .85rem; opacity: .85; }
+.nav-aviso { margin: 10px 0 8px; font-size: .88rem; }
+.nav-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.nav-botoes .btn { white-space: normal; line-height: 1.1; text-align: center; min-height: 48px; }
+.nav-botoes #nav-bussola-ativar { grid-column: 1 / -1; }
+.btn-saida-nav { background: transparent; border-color: currentColor; color: inherit; }
+.mk-destino-rotulo { left: 18px; top: -10px; }
+.lg-destino i { font-style: normal; }
+@media (prefers-reduced-motion: reduce) { .nav-seta, .nav-norte { transition: none !important; } }
+@media (max-width: 340px) { .nav-botoes { grid-template-columns: 1fr; } .nav-bussola { width: 80px; height: 80px; } }

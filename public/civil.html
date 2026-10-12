@@ -99,9 +99,32 @@
             <span><i class="lg-eu"></i> Você</span>
             <span><i class="simbolo simbolo-militar"><span>M</span></i> Bombeiro</span>
             <span><i class="simbolo simbolo-responsavel"><span>R</span></i> Responsável</span>
+            <span class="lg-destino" hidden id="lg-destino"><i>🧭</i> Destino</span>
           </div>
         </div>
         <p class="mapa-civil-nota" id="mapa-nota" hidden></p>
+
+        <!-- Navegação até o destino enviado pelos bombeiros -->
+        <section class="navegacao" id="navegacao" hidden aria-labelledby="nav-nome">
+          <div class="nav-topo"><span class="nav-rotulo">🧭 Ir até</span><strong id="nav-nome"></strong></div>
+          <div class="nav-corpo">
+            <div class="nav-bussola" id="nav-bussola" aria-hidden="true">
+              <span class="nav-norte" id="nav-norte">N</span>
+              <span class="nav-seta" id="nav-seta"></span>
+            </div>
+            <div class="nav-info">
+              <div class="nav-dist" id="nav-dist" role="status" aria-live="polite">—</div>
+              <div class="nav-dir" id="nav-dir"></div>
+              <div class="nav-coord mono" id="nav-coord"></div>
+            </div>
+          </div>
+          <p class="nav-aviso" id="nav-aviso"></p>
+          <div class="nav-botoes">
+            <button class="btn" type="button" id="nav-bussola-ativar" hidden>Usar a bússola do celular</button>
+            <a class="btn" id="nav-rota" target="_blank" rel="noopener noreferrer">Rota no app de mapas ↗</a>
+            <button class="btn btn-saida-nav" type="button" id="nav-encerrar">Encerrar navegação</button>
+          </div>
+        </section>
 
         <!-- Ações principais -->
         <div class="acoes-civil">
@@ -125,11 +148,11 @@
           <input class="sr-only" type="file" accept="image/*" id="foto-galeria">
         </label>
 
-        <!-- Fotos enviadas (aparece só quando houver)
+        <!-- Fotos enviadas (aparece só quando houver) -->
         <section class="fotos-civil" id="fotos-civil" hidden aria-labelledby="tit-fotos">
           <h2 class="titulo-secao" id="tit-fotos">Suas fotos</h2>
           <ul class="fotos-minhas" id="fotos-minhas"></ul>
-        </section> -->
+        </section>
 
         <button class="btn btn-notif" type="button" id="btn-notif" hidden>🔔 Avisar quando os bombeiros mandarem mensagem</button>
         <label class="linha-opcao" hidden><input type="checkbox" id="opt-tela" checked> Manter a tela ligada</label>

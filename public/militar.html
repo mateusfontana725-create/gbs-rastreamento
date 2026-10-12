@@ -185,19 +185,30 @@
               <button class="menu-item menu-perigo" type="button" id="btn-encerrar"><span class="ico-item" aria-hidden="true">■</span><span>Encerrar operação</span></button>
               <button class="menu-item menu-perigo" type="button" id="btn-excluir-op" hidden><span class="ico-item" aria-hidden="true">✕</span><span>Excluir operação</span></button>
             </section>
+            <section class="menu-grupo" aria-labelledby="mg-areas">
+              <h3 id="mg-areas">Áreas e pontos</h3>
+              <button class="menu-item" type="button" id="menu-setor-raio"><span class="ico-item" aria-hidden="true">◯</span><span>Novo setor por raio</span></button>
+              <button class="menu-item" type="button" id="menu-setor-poligono"><span class="ico-item" aria-hidden="true">⬠</span><span>Novo setor desenhando a área</span></button>
+              <button class="menu-item" type="button" id="menu-ponto"><span class="ico-item" aria-hidden="true">⚑</span><span>Marcar ponto de interesse</span></button>
+              <button class="menu-item" type="button" id="menu-destino"><span class="ico-item" aria-hidden="true">🧭</span><span>Enviar destino a participantes</span></button>
+              <button class="menu-item" type="button" id="menu-areas"><span class="ico-item" aria-hidden="true">☰</span><span>Lista de setores e pontos</span></button>
+            </section>
             <section class="menu-grupo" aria-labelledby="mg-camadas">
               <h3 id="mg-camadas">Camadas do mapa</h3>
               <div role="radiogroup" aria-label="Mapa de fundo">
                 <button class="menu-item menu-radio" type="button" role="radio" data-camada="osm" aria-checked="true"><span class="marca-opcao" aria-hidden="true"></span><span>Mapa (OpenStreetMap)</span></button>
-                <button class="menu-item menu-radio" type="button" role="radio" data-camada="topo" aria-checked="false"><span class="marca-opcao" aria-hidden="true"></span><span>Relevo (OpenTopoMap)</span></button>
+                <button class="menu-item menu-radio" type="button" role="radio" data-camada="topo" aria-checked="false"><span class="marca-opcao" aria-hidden="true"></span><span>Topográfico (curvas de nível)</span></button>
                 <button class="menu-item menu-radio" type="button" role="radio" data-camada="satelite" aria-checked="false"><span class="marca-opcao" aria-hidden="true"></span><span>Satélite (Esri)</span></button>
               </div>
+              <button class="menu-item menu-check" type="button" id="opt-setores" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Setores de busca</span></button>
+              <button class="menu-item menu-check" type="button" id="opt-pontos" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Pontos de interesse</span></button>
               <button class="menu-item menu-check" type="button" id="opt-fotos" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Fotos no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-relatos" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Relatos no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-trilhas" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Trilhas de todos</span></button>
             </section>
             <section class="menu-grupo" aria-labelledby="mg-vis">
               <h3 id="mg-vis">Visualização</h3>
+              <button class="menu-item" type="button" id="menu-3d"><span class="ico-item" aria-hidden="true">⛰</span><span>Relevo em 3D</span></button>
               <button class="menu-item" type="button" id="menu-enquadrar"><span class="ico-item" aria-hidden="true">⤢</span><span>Enquadrar todos no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-nomes" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Nomes no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-legenda" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Legenda</span></button>
@@ -215,6 +226,40 @@
 
     <div class="painel-corpo" id="painel-corpo">
       <div id="mapa" role="region" aria-label="Mapa dos participantes"></div>
+
+      <!-- Barra do modo de desenho (setores, pontos, destino) -->
+      <div class="barra-desenho" id="barra-desenho" role="status" hidden>
+        <span class="barra-desenho-texto" id="barra-desenho-texto"></span>
+        <span class="barra-desenho-extra" id="barra-desenho-extra"></span>
+        <span class="barra-desenho-botoes" id="barra-desenho-botoes"></span>
+      </div>
+
+      <!-- Setores de busca e pontos de interesse -->
+      <aside class="central painel-areas" id="painel-areas" hidden aria-labelledby="areas-titulo" role="dialog">
+        <div class="ficha-cabeca central-cabeca">
+          <h2 id="areas-titulo">Setores e pontos</h2>
+          <button class="btn btn-pequeno" type="button" id="areas-fechar" aria-label="Fechar setores e pontos">Fechar</button>
+        </div>
+        <div class="ficha-corpo">
+          <div class="ficha-bloco">
+            <h3>Setores de busca (<span id="qtd-setores">0</span>)</h3>
+            <div class="acoes-linha">
+              <button class="btn btn-pequeno" type="button" id="areas-novo-raio">＋ Por raio</button>
+              <button class="btn btn-pequeno" type="button" id="areas-novo-poligono">＋ Desenhar área</button>
+            </div>
+            <ul class="lista-areas" id="lista-setores"></ul>
+            <p class="muted" id="setores-vazio">Nenhum setor ainda.</p>
+          </div>
+          <div class="ficha-bloco">
+            <h3>Pontos de interesse (<span id="qtd-pontos-int">0</span>)</h3>
+            <div class="acoes-linha">
+              <button class="btn btn-pequeno" type="button" id="areas-novo-ponto">＋ Marcar ponto</button>
+            </div>
+            <ul class="lista-areas" id="lista-pontos-int"></ul>
+            <p class="muted" id="pontos-int-vazio">Nenhum ponto marcado ainda.</p>
+          </div>
+        </div>
+      </aside>
 
       <button class="btn btn-pequeno btn-reabrir" type="button" id="btn-mostrar-lateral" aria-controls="lateral" hidden title="Mostrar a lista de participantes">
         <span aria-hidden="true">«</span> Participantes <span class="contador-mini" id="reabrir-qtd">0</span><span class="ponto-alerta" id="reabrir-alerta" hidden></span>
@@ -281,8 +326,10 @@
           <div class="ficha-bloco" id="ficha-saida" hidden></div>
           <div class="ficha-bloco ficha-rapido">
             <p class="ficha-pos" id="ficha-pos"></p>
+            <p class="ficha-destino" id="ficha-destino" hidden></p>
             <div class="acoes-linha">
               <button class="btn" type="button" id="ficha-centralizar">Ver no mapa</button>
+              <button class="btn" type="button" id="ficha-enviar-destino" title="Enviar um destino para este participante navegar até lá">🧭 Destino</button>
               <button class="btn btn-trilha" type="button" id="ficha-trilha" aria-pressed="true">Trilha</button>
               <a class="btn btn-ok" id="ficha-ligar" href="#" hidden>Ligar</a>
             </div>
@@ -336,6 +383,17 @@
       <div class="alerta-fila" id="alerta-cmd-fila"></div>
     </div>
   </div>
+
+  <!-- Relevo em 3D (MapLibre GL + modelo digital de terreno), carregado só quando aberto -->
+  <section class="visao-3d" id="visao-3d" hidden role="dialog" aria-modal="true" aria-labelledby="visao-3d-titulo">
+    <header class="visao-3d-cabeca">
+      <button class="btn btn-pequeno" type="button" id="visao-3d-fechar">◀ Voltar ao mapa</button>
+      <h2 id="visao-3d-titulo">Relevo em 3D</h2>
+      <button class="btn btn-pequeno" type="button" id="visao-3d-atualizar">Atualizar posições</button>
+    </header>
+    <div class="visao-3d-mapa" id="visao-3d-mapa"></div>
+    <p class="visao-3d-nota" id="visao-3d-nota"></p>
+  </section>
 
   <div id="avisos" aria-live="polite"></div>
 

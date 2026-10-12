@@ -73,6 +73,15 @@
     jaEnquadrou: false,
     seguindo: true,
     conversaVistaAte: 0,
+    // setores, pontos e navegação
+    camadaExtras: null,
+    destino: null,            // { id, nome, lat, lng, criado_em }
+    marcaDestino: null,
+    linhaDestino: null,
+    rumo: null,               // direção para onde o celular aponta (bússola), em graus
+    rumoEm: 0,
+    ouvindoBussola: false,
+    rafNav: null,
   };
 
   /* ------------------------------------------------------------------ */
@@ -167,6 +176,8 @@
     $('btn-falar').addEventListener('click', abrirConversa);
     $('conversa-fechar').addEventListener('click', fecharConversa);
     $('btn-onde-estou').addEventListener('click', function () { estado.seguindo = true; centralizarEmMim(true); });
+    $('nav-encerrar').addEventListener('click', encerrarNavegacao);
+    $('nav-bussola-ativar').addEventListener('click', pedirBussola);
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && !$('painel-conversa').hidden && !document.querySelector('.modal-fundo')) fecharConversa();
     });
@@ -397,6 +408,7 @@
     estado.ultimaLeitura = { lat: c.latitude, lng: c.longitude, prec: prec, recebidaEm: agora };
     estado.gps = prec != null && prec > 50 ? 'fraco' : 'ok';
     atualizarMeuMarcador();
+    agendarNavegacao();
 
     var u = estado.ultimoAceito;
     var aceitar;
@@ -822,25 +834,31 @@
     return 'há ' + m + ' min';
   }
 
-  // Só militares e responsáveis da operação; a idade da posição vem do servidor.
+  // O que o mapa do participante pode mostrar (mapa_do_participante): militares e
+  // responsáveis (sem nomes), os setores atribuídos a ele, pontos de encontro e de
+  // risco, e o destino enviado pelos bombeiros. A idade das posições vem do servidor.
   async function carregarEquipe() {
     if (!estado.part || estado.finalizado || !estado.mapa) return;
-    var lista;
+    var dados;
     try {
-      lista = await C.rpc('equipe_no_mapa', { p_participante: estado.part.participante_id }, 12000);
+      dados = await C.rpc('mapa_do_participante', { p_participante: estado.part.participante_id }, 12000);
     } catch (e) {
       tratarErroFatal(e);
       return;
     }
-    if (!estado.mapa) return;
+    if (!estado.mapa || !dados) return;
+    desenharEquipe(dados.equipe || []);
+    desenharExtras(dados.setores || [], dados.pontos || []);
+    definirDestino(dados.destino || null);
+  }
+
+  function desenharEquipe(lista) {
     var vistos = new Set();
-    var antigos = 0;
     (lista || []).forEach(function (b) {
       if (b.lat == null || b.lng == null) return;
       vistos.add(b.id);
       var resp = b.tipo === 'responsavel';
       var antigo = b.idade_s > EQUIPE_ATUAL_S;
-      if (antigo) antigos++;
       var nome = resp ? 'Responsável' : 'Bombeiro';
       var html = '<div class="mk mk-equipe ' + (resp ? 'responsavel' : 'militar') + (antigo ? ' antigo' : '') + '">' +
         '<div class="simbolo simbolo-' + (resp ? 'responsavel' : 'militar') + '"><span>' + (resp ? 'R' : 'M') + '</span></div>' +
@@ -857,7 +875,7 @@
         mk.setLatLng([b.lat, b.lng]);
         if (mk._gbsHtml !== html) { mk.setIcon(L.divIcon({ className: 'mk-wrap', html: html, iconSize: [0, 0] })); mk._gbsHtml = html; }
         mk.setPopupContent(texto);
-        if (mk.options.title !== texto && mk.getElement()) mk.getElement().title = texto;
+        if (mk.getElement()) mk.getElement().title = texto;
       }
     });
     estado.equipe.forEach(function (mk, id) {
@@ -873,6 +891,195 @@
       estado.equipe.forEach(function (mk) { var p = mk.getLatLng(); pts.push([p.lat, p.lng]); });
       estado.mapa.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 16 });
       estado.seguindo = false;
+    }
+  }
+
+  var LETRA_PONTO = { ENCONTRO: 'E', RISCO: '!' };
+  var NOME_PONTO = { ENCONTRO: 'Ponto de encontro', RISCO: 'Área de risco — cuidado' };
+
+  // Setores atribuídos a mim (contorno) e pontos de encontro / risco.
+  function desenharExtras(setores, pontos) {
+    if (!estado.camadaExtras) estado.camadaExtras = L.layerGroup().addTo(estado.mapa);
+    var assinatura = JSON.stringify([setores, pontos]);
+    if (estado.camadaExtras._assinatura === assinatura) return;
+    estado.camadaExtras._assinatura = assinatura;
+    estado.camadaExtras.clearLayers();
+    setores.forEach(function (st) {
+      var estilo = { color: st.cor, weight: 3, fillColor: st.cor, fillOpacity: 0.1, dashArray: st.status === 'concluido' ? null : '8 6', interactive: false };
+      var camada = st.forma === 'circulo' ? L.circle([st.centro_lat, st.centro_lng], Object.assign({ radius: st.raio_m }, estilo)) : L.polygon(st.pontos || [], estilo);
+      camada.bindTooltip('Seu setor: ' + C.esc(st.nome), { permanent: true, direction: 'center', className: 'rotulo-setor' });
+      camada.addTo(estado.camadaExtras);
+    });
+    pontos.forEach(function (pt) {
+      L.marker([pt.lat, pt.lng], {
+        icon: L.divIcon({ className: 'mk-poi-wrap', html: '<div class="mk-poi poi-' + C.esc(pt.categoria) + '"><span>' + (LETRA_PONTO[pt.categoria] || '•') + '</span></div><div class="mk-poi-rotulo">' + C.esc(pt.titulo) + '</div>', iconSize: [0, 0] }),
+        title: (NOME_PONTO[pt.categoria] || 'Ponto') + ': ' + pt.titulo, keyboard: false,
+      }).bindPopup((NOME_PONTO[pt.categoria] || 'Ponto') + ': ' + C.esc(pt.titulo)).addTo(estado.camadaExtras);
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Navegação até o destino enviado pelos bombeiros                      */
+  /* ------------------------------------------------------------------ */
+  var DIRECOES = ['Norte', 'Nordeste', 'Leste', 'Sudeste', 'Sul', 'Sudoeste', 'Oeste', 'Noroeste'];
+
+  function definirDestino(d) {
+    var antes = estado.destino;
+    if (!d) {
+      if (antes) { estado.destino = null; atualizarDestinoNoMapa(); $('navegacao').hidden = true; $('lg-destino').hidden = true; }
+      return;
+    }
+    var novo = !antes || antes.id !== d.id;
+    estado.destino = d;
+    $('navegacao').hidden = false;
+    $('lg-destino').hidden = false;
+    $('nav-nome').textContent = d.nome;
+    $('nav-coord').textContent = C.coord(d.lat) + ', ' + C.coord(d.lng);
+    $('nav-rota').href = 'https://www.google.com/maps/dir/?api=1&destination=' + d.lat + ',' + d.lng + '&travelmode=walking';
+    if (novo) {
+      ligarBussola();
+      try { if (navigator.vibrate) navigator.vibrate([300, 120, 300]); } catch (e) { /* ignora */ }
+      bipe();
+      UI.aviso('Os bombeiros enviaram um destino: ' + d.nome + '.', 'ok', 8000);
+      if (estado.mapa) {
+        var pts = [[d.lat, d.lng]];
+        if (estado.ultimaLeitura) pts.push([estado.ultimaLeitura.lat, estado.ultimaLeitura.lng]);
+        estado.mapa.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 17 });
+        estado.seguindo = false;
+      }
+    }
+    atualizarDestinoNoMapa();
+    agendarNavegacao();
+  }
+
+  function atualizarDestinoNoMapa() {
+    if (!estado.mapa) return;
+    var d = estado.destino;
+    if (!d) {
+      if (estado.marcaDestino) { estado.marcaDestino.remove(); estado.marcaDestino = null; }
+      if (estado.linhaDestino) { estado.linhaDestino.remove(); estado.linhaDestino = null; }
+      return;
+    }
+    if (!estado.marcaDestino) {
+      estado.marcaDestino = L.marker([d.lat, d.lng], {
+        icon: L.divIcon({ className: 'mk-destino-wrap', html: '<div class="mk-destino">🧭</div>', iconSize: [0, 0] }),
+        keyboard: false, zIndexOffset: 900, title: 'Destino: ' + d.nome,
+      }).addTo(estado.mapa);
+    } else {
+      estado.marcaDestino.setLatLng([d.lat, d.lng]);
+    }
+    var l = estado.ultimaLeitura;
+    if (l) {
+      var pts = [[l.lat, l.lng], [d.lat, d.lng]];
+      if (!estado.linhaDestino) estado.linhaDestino = L.polyline(pts, { color: '#facc15', weight: 3, dashArray: '2 8', lineCap: 'round', interactive: false }).addTo(estado.mapa);
+      else estado.linhaDestino.setLatLngs(pts);
+    }
+  }
+
+  function rumoEntre(lat1, lng1, lat2, lng2) {
+    var k = Math.PI / 180;
+    var y = Math.sin((lng2 - lng1) * k) * Math.cos(lat2 * k);
+    var x = Math.cos(lat1 * k) * Math.sin(lat2 * k) - Math.sin(lat1 * k) * Math.cos(lat2 * k) * Math.cos((lng2 - lng1) * k);
+    return (Math.atan2(y, x) / k + 360) % 360;
+  }
+
+  function formatarDistancia(m) {
+    if (m < 1000) return Math.round(m) + ' m';
+    return (m / 1000).toLocaleString('pt-BR', { maximumFractionDigits: m < 10000 ? 1 : 0 }) + ' km';
+  }
+
+  function agendarNavegacao() {
+    if (!estado.destino || estado.rafNav) return;
+    estado.rafNav = requestAnimationFrame(function () { estado.rafNav = null; atualizarNavegacao(); });
+  }
+
+  // Distância e direção em LINHA RETA, recalculadas a cada leitura do GPS.
+  function atualizarNavegacao() {
+    var d = estado.destino;
+    if (!d) return;
+    atualizarDestinoNoMapa();
+    var l = estado.ultimaLeitura;
+    var semGps = !l || Date.now() - l.recebidaEm > 60000 || estado.gps === 'negado' || estado.gps === 'indisponivel';
+    var caixa = $('navegacao');
+    var aviso = $('nav-aviso');
+    if (semGps) {
+      caixa.className = 'navegacao sem-gps';
+      $('nav-dist').textContent = 'Sem GPS';
+      $('nav-dir').textContent = 'Não dá para calcular a distância e a direção agora.';
+      aviso.textContent = 'Ligue a localização do celular ou vá para um lugar aberto. As coordenadas do destino estão abaixo.';
+      $('nav-seta').style.transform = 'rotate(0deg)';
+      $('nav-bussola').classList.add('inativa');
+      return;
+    }
+    $('nav-bussola').classList.remove('inativa');
+    var dist = C.distancia(l.lat, l.lng, d.lat, d.lng);
+    var rumo = rumoEntre(l.lat, l.lng, d.lat, d.lng);
+    var chegou = dist <= Math.max(15, l.prec || 0);
+    var fraco = l.prec != null && l.prec > 50;
+    caixa.className = 'navegacao' + (chegou ? ' chegou' : '') + (fraco ? ' gps-fraco' : '');
+    $('nav-dist').textContent = chegou ? 'Você chegou' : formatarDistancia(dist);
+    var dir = DIRECOES[Math.round(rumo / 45) % 8];
+    var bussolaOk = estado.rumo != null && Date.now() - estado.rumoEm < 3000;
+    var giro = bussolaOk ? rumo - estado.rumo : rumo;
+    $('nav-seta').style.transform = 'rotate(' + Math.round(giro) + 'deg)';
+    $('nav-norte').style.transform = 'rotate(' + Math.round(bussolaOk ? -estado.rumo : 0) + 'deg) translateY(-34px)';
+    $('nav-bussola').classList.toggle('com-bussola', bussolaOk);
+    $('nav-dir').textContent = chegou ? 'O destino está a menos de ' + Math.round(Math.max(15, l.prec || 0)) + ' m.'
+      : 'em linha reta · para o ' + dir + ' (' + Math.round(rumo) + '°)' + (bussolaOk ? ' · siga a seta' : ' · a seta aponta em relação ao Norte (N)');
+    aviso.textContent = (fraco ? 'Sinal de GPS fraco (' + C.precisao(l.prec) + '): distância e direção aproximadas. ' : '') +
+      'Linha reta não é caminho: confira o terreno, evite riscos e siga as orientações dos bombeiros.';
+  }
+
+  // Bússola: Android (deviceorientationabsolute) ou iPhone (webkitCompassHeading, com permissão).
+  function aoGirar(ev) {
+    var r = null;
+    if (typeof ev.webkitCompassHeading === 'number' && !isNaN(ev.webkitCompassHeading)) r = ev.webkitCompassHeading;
+    else if (ev.absolute && typeof ev.alpha === 'number') r = 360 - ev.alpha;
+    if (r == null) return;
+    var ang = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0);
+    estado.rumo = (r + ang + 360) % 360;
+    estado.rumoEm = Date.now();
+    agendarNavegacao();
+  }
+
+  function ligarBussola() {
+    if (estado.ouvindoBussola) return;
+    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      $('nav-bussola-ativar').hidden = false;   // iPhone: precisa de um toque para pedir permissão
+      return;
+    }
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', aoGirar);
+      estado.ouvindoBussola = true;
+    } else if ('ondeviceorientation' in window) {
+      window.addEventListener('deviceorientation', aoGirar);
+      estado.ouvindoBussola = true;
+    }
+  }
+
+  function pedirBussola() {
+    DeviceOrientationEvent.requestPermission().then(function (r) {
+      if (r === 'granted') {
+        window.addEventListener('deviceorientation', aoGirar);
+        estado.ouvindoBussola = true;
+        $('nav-bussola-ativar').hidden = true;
+      } else {
+        UI.aviso('Sem permissão para a bússola: a seta vai apontar em relação ao Norte.', 'erro', 7000);
+      }
+    }).catch(function () { UI.aviso('Bússola indisponível neste celular.', 'erro'); });
+  }
+
+  async function encerrarNavegacao() {
+    var d = estado.destino;
+    if (!d) return;
+    var r = await UI.confirmar({ titulo: 'Encerrar a navegação?', texto: 'O destino "' + d.nome + '" some da sua tela. Os bombeiros podem enviar outro.', ok: 'Encerrar', cancelar: 'Voltar' });
+    if (!r) return;
+    try {
+      await C.rpc('encerrar_destino', { p_destino: d.id });
+      definirDestino(null);
+      UI.aviso('Navegação encerrada.', 'ok');
+    } catch (e) {
+      if (!tratarErroFatal(e)) UI.aviso(e.rede ? 'Sem internet: tente de novo.' : e.message, 'erro');
     }
   }
 
@@ -1324,6 +1531,7 @@
       estado.gps = 'sem_sinal';
     }
     atualizarUI();
+    agendarNavegacao();
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -1392,6 +1600,9 @@
     clearInterval(estado.timerUI);
     clearInterval(estado.timerEquipe);
     estado.timerEquipe = null;
+    window.removeEventListener('deviceorientationabsolute', aoGirar);
+    window.removeEventListener('deviceorientation', aoGirar);
+    $('navegacao').hidden = true;
     $('painel-conversa').hidden = true;
     document.body.classList.remove('conversa-aberta');
     clearTimeout(estado.timerEnvio);
