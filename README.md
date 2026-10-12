@@ -203,6 +203,89 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
    houver caminho mapeado. Em mata sem trilhas, vale só a direção em linha reta.
 5. **Encerrar navegação**: pelo participante (botão no cartão) ou pelo responsável (ficha → **Encerrar**).
    A ficha mostra o destino ativo e desenha a linha até ele. Um novo destino substitui o anterior.
+6. **Como o destino chega ao celular** (sem recarregar a página):
+   - **na hora**, pelo Supabase Realtime: o celular assina as mudanças da tabela `destinos` filtradas pelo
+     próprio participante; o RLS só entrega o destino **dele** (política `destinos_ler_participante`);
+   - **recuperação**: o celular também consulta o destino (`meu_destino`) ao entrar, ao reconectar o tempo
+     real, ao voltar para a página, quando a internet volta e a cada 15 s — funciona mesmo sem tempo real e
+     mesmo se o mapa não carregar;
+   - **confirmação**: ao mostrar o destino, o celular avisa o servidor (`confirmar_destino`). Na ficha, o
+     responsável vê **"✓ recebido no celular às HH:MM"** ou **"aguardando o celular receber"**;
+   - se a verificação falhar, o celular mostra um aviso em vez de ficar em silêncio. Se o servidor ainda não
+     tiver a migração 004, a página usa a consulta antiga (`mapa_do_participante`) e continua recebendo.
+
+### Remover e reincluir participante
+
+- **Remover** (ficha → Mais detalhes → Remover) **não apaga nada**: o cadastro, a trilha, as mensagens e as
+  fotos continuam. O participante sai da lista principal e vai para **Fora da operação** (no fim da lista),
+  com "Removido às HH:MM por Fulano". O destino ativo dele é encerrado. O celular para o GPS e mostra
+  "Participação encerrada".
+- **Reincluir**: botão **Reincluir** no item da lista "Fora da operação" ou na ficha (bloco no topo). Só um
+  responsável da operação, com a operação ativa. Vale também para quem teve a **saída liberada**. O
+  **mesmo registro** volta a ficar ativo (nada é duplicado) e fica registrado quem reincluiu e quando
+  (tabela `participacao_eventos`).
+- O celular que ficou na tela "Participação encerrada" verifica a cada 20 s e, ao ser reincluído, mostra
+  **"Os bombeiros chamaram você de volta" → VOLTAR PARA A BUSCA**: com um toque volta a enviar a
+  localização, receber mensagens e destinos. Se a pessoa fechou a página, basta abrir o **mesmo link no
+  mesmo celular** (a identidade anônima do aparelho é a mesma). Até o celular voltar, o painel mostra
+  **"Reincluído · aguardando o celular voltar"**.
+- Sem reinclusão, quem foi removido não consegue voltar sozinho pelo link.
+
+### Localização do responsável (liga sozinha)
+
+- Ao abrir ou criar uma operação ativa, **Minha posição liga automaticamente** — usando a permissão de
+  localização do navegador (se ela ainda não foi dada, o navegador pergunta).
+- O item **Ferramentas → Minha posição** mostra o estado real: *ligando…*, **ligada** (só depois de a
+  permissão ser concedida **e** chegar coordenada), *ligada · procurando sinal*, *bloqueada no navegador*
+  (tocar mostra como liberar) ou *desligada*.
+- Desligar é respeitado: ao reabrir **a mesma operação** ela continua desligada; numa **operação nova**
+  liga de novo sozinha. Nunca há dois observadores de GPS nem envios duplicados.
+- Se o mesmo responsável está com o painel aberto em **dois aparelhos** e um deles já compartilha, o
+  outro não liga sozinho (a trilha não "pula" entre os dois).
+- Limite: funciona com o painel **aberto e a tela ligada**. Em segundo plano ou com a tela bloqueada o
+  navegador pode pausar o GPS (seção 8).
+
+### Permissão de localização no celular do participante
+
+- A página consulta o estado da permissão (Permissions API, quando o navegador tem):
+  **concedida** → segue direto; **ainda não perguntada** → explica e pede pelo aviso oficial do navegador ao
+  tocar em COMEÇAR; **negada** → mostra "A localização está bloqueada para este site" com os **passos para o
+  navegador e o aparelho em uso** (Chrome, Samsung Internet, Firefox no Android; Safari e Chrome no iPhone;
+  computador) e o botão **VERIFICAR DE NOVO**.
+- Não existe forma padronizada de um site abrir as configurações do celular, por isso **não há botão
+  "Abrir configurações"** — só os passos. Quando a pessoa libera, a página percebe sozinha (ou ao tocar em
+  VERIFICAR DE NOVO) e continua **sem pedir o cadastro de novo**. No iPhone pode ser preciso recarregar
+  a página (a participação retoma sozinha).
+- São mostrados separadamente: **permissão do navegador bloqueada**, **localização do celular desligada**
+  e **sem sinal de GPS** — cada um com o botão **Como resolver**. Nesses casos a tela diz claramente
+  "Os bombeiros NÃO estão vendo onde você está"; "estão vendo" só aparece depois de uma posição enviada.
+- Ao recarregar a página (ou reabrir o link) com a permissão já concedida, a participação **retoma
+  sozinha**, com o mesmo cadastro e o destino ativo.
+
+### Trilhas GPS: filtros de estabilidade
+
+O mesmo filtro (`public/js/gps.js`) é usado no celular do participante e na "Minha posição" do responsável.
+**Nenhuma posição é inventada nem suavizada**: cada ponto gravado é uma leitura real; o filtro só decide
+quais leituras entram na trilha.
+
+| Situação | O que acontece (valores padrão em `GPS.PADRAO`) |
+|---|---|
+| Coleta | `watchPosition` com alta precisão, `maximumAge: 0` (nunca usa cache) e `timeout: 30 s`; um único observador; parado, pede uma leitura nova a cada 45 s; sem leituras por 90 s com a tela aberta, reinicia o observador |
+| Envio | separado da coleta: pontos aceitos vão para a fila do aparelho e são enviados **em lote a cada 10 s** (o 1º na hora); sem internet ficam guardados |
+| Leitura antiga, repetida, fora de ordem ou inválida (0,0, NaN) | descartada (com correção automática se o relógio do GPS e o do celular forem diferentes) |
+| Precisão pior que 100 m | não entra na trilha; no máximo **1 ponto aproximado por minuto**, para o painel saber a região |
+| Parado (oscilação) | afastamento menor que 1,5 × a precisão (mín. 5 m, máx. 40 m) é tratado como oscilação; confirma a posição a cada 60 s |
+| Andando | entra com a velocidade medida pelo GPS (≥ 0,7 m/s) ou com afastamento que se mantém em 2 leituras seguidas (ou maior que o dobro do limiar); no máximo 1 ponto a cada 4 s — pequenos deslocamentos reais acumulam e entram |
+| Salto / velocidade impossível (> 12 m/s ≈ 43 km/h, além da soma das incertezas) | descartado; se 3 leituras seguidas confirmarem o novo local (ex.: foi de carro), é aceito e a trilha é **interrompida** ali |
+| Desenho no painel | em ordem cronológica; não liga pontos imprecisos, separados por mais de 5 min ou por salto impossível; não desenha o vaivém de quem está parado. Os pontos guardados não mudam (histórico completo na ficha) |
+
+- **Diagnóstico**: **Ferramentas → Diagnóstico do GPS** (responsável) e, no participante, abrindo o link com
+  `&diag=1` no fim (botão "Diagnóstico do GPS" no rodapé). Mostra cada leitura: hora, aceita/descartada e
+  o **motivo**, precisão, distância, idade e coordenadas arredondadas. Fica **só no aparelho** (não é
+  enviado e não tem nome, CPF ou telefone).
+- Trilha civil continua **roxa #A020F0 com contorno claro**.
+- Os parâmetros podem ser ajustados em `public/js/gps.js` (`PADRAO`); o teste `node testes/filtro_gps.test.js`
+  confere o comportamento (parado, andando, devagar, salto, imprecisão, leituras antigas, relógio).
 
 ### Mapa topográfico e relevo em 3D
 
@@ -221,12 +304,17 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
 
 - A barra superior tem só **Mensagens** e **Ferramentas** (☰). O menu Ferramentas agrupa:
   - **Operação**: Minha posição, Registrar foto, Convidar participantes, Equipe de responsáveis,
-    Mensagens/relatos/fotos, Encerrar operação e Excluir operação (só para quem pode);
+    Mensagens/relatos/fotos, Diagnóstico do GPS;
   - **Áreas e pontos**: Novo setor por raio, Novo setor desenhando a área, Marcar ponto de interesse,
     Enviar destino a participantes, Lista de setores e pontos;
   - **Camadas do mapa**: Mapa (OpenStreetMap), Topográfico (curvas de nível), Satélite, Setores de busca,
     Pontos de interesse, Fotos no mapa, Relatos no mapa, Trilhas de todos;
-  - **Visualização**: Relevo em 3D, Enquadrar todos, Nomes no mapa, Legenda, Lista de participantes.
+  - **Visualização**: Relevo em 3D, Enquadrar todos, Nomes no mapa;
+  - **Encerrar ou excluir** — sempre **no fim**, separado por uma linha tracejada vermelha:
+    **Encerrar operação** (pede confirmação) e, com espaço entre os dois, **Excluir operação** (só para
+    quem pode; confirmação reforçada: lista o que será apagado e exige **digitar o nome da operação**).
+  - "Legenda" e "Lista de participantes" saíram do menu: a **legenda** fica sempre no mapa e abre/fecha
+    tocando nela; a **lista** tem os botões **» Ocultar** e **« Participantes**.
 - **Trilhas**: militares em vermelho (contínua), responsáveis em ciano (pontilhada) e **civis em roxo**
   (tracejada, com contorno claro por baixo para aparecer sobre mata, satélite e topográfico). Cada civil
   tem um tom de roxo/magenta diferente, e a trilha de quem está com a ficha aberta fica mais grossa. O
@@ -260,7 +348,8 @@ O participante **não tem botão para parar** o rastreamento. Ele toca em **Soli
 (pode informar o motivo); o painel toca um alarme e destaca "Pediu para sair". Na ficha, o
 responsável escolhe **Liberar saída** (o celular para de enviar e mostra "Saída liberada") ou
 **Pedir para continuar** (o pedido é cancelado e o participante recebe uma mensagem). Enquanto
-aguarda, a localização continua sendo enviada.
+aguarda, a localização continua sendo enviada. Quem teve a saída liberada pode ser **reincluído**
+(ver "Remover e reincluir participante").
 
 > Nenhum site consegue impedir que alguém feche o navegador ou desligue o GPS do próprio celular.
 > Se isso acontecer, o painel mostra "Sinal instável" e depois "Sem atualização" com a última
@@ -276,11 +365,13 @@ rastreamento-sar/
 │   ├── militar.html            painel do responsável
 │   ├── civil.html              página do participante
 │   ├── sw.js                   service worker mínimo (notificações no Android)
+│   ├── versao.json             versão publicada (páginas abertas há muito tempo avisam que há versão nova)
 │   ├── css/estilos.css         estilos (alto contraste, botões grandes, responsivo)
 │   └── js/
 │       ├── comunicacao.js      cliente Supabase, chamadas ao servidor, erros, relógio, formatação
 │       ├── interface.js        avisos e caixas de confirmação
 │       ├── fotos.js            fotos: leitura de EXIF, redução, prévia, envio ao Storage privado
+│       ├── gps.js              filtro das leituras do GPS, montagem das trilhas, permissão e diagnóstico
 │       ├── militar.js          lógica do painel
 │       └── civil.js            lógica do participante (GPS, fila offline, mensagens, relatos, fotos)
 ├── api/
@@ -290,7 +381,9 @@ rastreamento-sar/
 ├── supabase/
 │   ├── schema.sql              instalação completa e idempotente (inclui todas as migrações)
 │   └── migracoes/
-│       └── 003_setores_pontos_navegacao.sql   só setores, pontos de interesse e destinos
+│       ├── 003_setores_pontos_navegacao.sql   setores, pontos de interesse e destinos
+│       └── 004_destinos_reinclusao.sql        destino recebido pelo participante e reinclusão
+├── testes/filtro_gps.test.js   teste do filtro de GPS (node, sem dependências)
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
 └── package.json
@@ -316,6 +409,18 @@ rastreamento-sar/
    - gatilho que apaga setores, pontos e destinos quando os dados da operação são apagados (retenção);
    - publicação das três tabelas no Realtime.
    Nenhuma tabela existente é alterada.
+   **Migração 004** (`supabase/migracoes/004_destinos_reinclusao.sql`, idempotente, exige a 003): é
+   **necessária para as correções de destino e de reinclusão**. Ela:
+   - acrescenta colunas em `participantes` (`removido_em`, `removido_por_nome`, `reincluido_em`,
+     `reincluido_por_nome`) e `destinos.recebido_em` — sem apagar nada;
+   - cria a tabela `participacao_eventos` (histórico de remoções, liberações e reinclusões; leitura só
+     pelos responsáveis da operação);
+   - cria a política RLS `destinos_ler_participante` (o participante lê **só o próprio** destino — base do
+     tempo real); nenhuma outra política é alterada;
+   - substitui `remover_participante` e `liberar_participante` (registram quem/quando e encerram o destino
+     ativo) e cria `reincluir_participante`, `confirmar_destino` e `meu_destino`;
+   - termina com `notify pgrst, 'reload schema'` para a API reconhecer as funções novas na hora.
+   O `schema.sql` completo já inclui a 003 e a 004 (seções 10 e 11).
 3. Ative o ingresso dos participantes: **Authentication → Sign In / Providers** (ou **Providers**) →
    ligue **Allow anonymous sign-ins** → **Save**.
    *Cada celular recebe uma identidade anônima; ela só serve para ingressar com o token do link.*
@@ -423,8 +528,9 @@ acompanhar o mapa. Na lista: **◎** centraliza o participante, **Trilha** mostr
 **Mostrar trilhas / Ocultar trilhas** atuam em todos. Toque no nome ou no marcador para abrir a
 **ficha** (dados, precisão, conversa, fotos, histórico de posições, comandos e estado das mensagens). Os comandos
 RETORNE, ATENÇÃO, MUDE A ROTA e PARE pedem confirmação antes do envio, e o texto pode ser complementado
-(ex.: "Retorne ao PC 2"). No mapa, **⤢** enquadra todos; nomes, legenda, camadas (Mapa, Relevo,
-Satélite), fotos, relatos e a lista ficam em **Ferramentas** (seção 1).
+(ex.: "Retorne ao PC 2"). No mapa, **⤢** enquadra todos e a legenda abre/fecha nela mesma; nomes,
+camadas (Mapa, Topográfico, Satélite), fotos e relatos ficam em **Ferramentas** (seção 1); a lista
+de participantes tem os próprios botões de ocultar/mostrar.
 
 **Participante**: abre o link → digita nome, **CPF** e **celular** → **INICIAR RASTREAMENTO** → permite
 a localização. CPF e celular são obrigatórios para civis e opcionais para militares (link de
@@ -469,7 +575,8 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 | Coordenadas não públicas | participantes **não leem** posições nem trilhas pela base de dados. O mapa do participante usa só a função `equipe_no_mapa`, que devolve a **última posição** dos militares e responsáveis da **mesma operação** (sem nome, CPF, telefone ou trilha; posições com mais de 15 min não vão; responsáveis só quando compartilham "Minha posição"), e nunca a de outros civis |
 | Mensagens e relatos | o participante só lê a própria conversa; os responsáveis leem as da operação. Envio só pela função `participante_enviar_mensagem` (valida participante, operação ativa, tipo, texto ≤ 1000 caracteres, coordenadas; limite de 20 por minuto; reenvio sem duplicar) |
 | Fotos | bucket **privado**: não existe link público. A imagem só é vista por **link temporário assinado (1 h)**, gerado apenas para os responsáveis da operação ou para o próprio autor. O envio só é aceito na pasta `operação/participante/` do próprio participante, com a operação ativa, JPEG até 10 MB; o registro (`registrar_foto`) confere que o arquivo existe e valida as coordenadas |
-| Setores, pontos e destinos | leitura só pelos responsáveis da operação (RLS); gravação só pelas funções, que conferem a equipe da operação; excluir só por quem criou o registro, quem criou a operação ou um administrador; participantes recebem só o próprio setor, pontos de encontro/risco e o próprio destino (`mapa_do_participante`); um destino só é enviado a participante da mesma operação |
+| Setores, pontos e destinos | leitura só pelos responsáveis da operação (RLS); gravação só pelas funções, que conferem a equipe da operação; excluir só por quem criou o registro, quem criou a operação ou um administrador; participantes recebem só o próprio setor, pontos de encontro/risco e o próprio destino (`mapa_do_participante`, `meu_destino` e a política `destinos_ler_participante`, que só libera a linha do próprio participante — inclusive no tempo real); um destino só é enviado a participante da mesma operação |
+| Remover e reincluir | remover não apaga dados; reincluir só por responsável da operação ativa (`reincluir_participante`), reativando o mesmo registro; histórico em `participacao_eventos` (só responsáveis leem); participante não remove nem reinclui ninguém |
 | Exclusão de operação | só o criador ou um administrador da equipe (`excluir_operacao`, verificado no banco); transação única; arquivos removidos do Storage com fila de pendências e limpeza diária; tokens invalidados na hora |
 | Validação de dados | latitude/longitude/precisão/horário validados no servidor; lote máximo de 500 pontos; orientação até 500 caracteres; limite de 60 orientações por minuto e de 300 participantes por operação |
 | Segredos | só a chave **pública** chega ao navegador (via `/api/config`, lida de variável de ambiente). A chave secreta fica no servidor (`/api/limpeza`) |
@@ -559,7 +666,7 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 12 | No celular do civil, abrir `/militar.html` | pede login; com a sessão do civil não há acesso ao painel nem às posições |
 | 13 | Encerrar a operação | o celular mostra "Operação encerrada"; com retenção "Ao encerrar", os dados somem na hora; com prazo, somem após a limpeza diária |
 | 14 | No celular do civil, tocar em **Solicitar encerramento** | o painel toca alarme e mostra "Pediu para sair"; o rastreamento continua; ao **Liberar saída**, o celular mostra "Saída liberada" |
-| 15 | Adicionar um segundo responsável em **Equipe** e ligar **Minha posição** nos dois painéis | cada um vê o outro no mapa (losango ciano); mensagem de um para o outro chega como alerta |
+| 15 | Adicionar um segundo responsável em **Equipe** e abrir a operação nos dois painéis (**Minha posição** liga sozinha) | cada um vê o outro no mapa (losango ciano); mensagem de um para o outro chega como alerta |
 | 16 | Abrir o painel no celular (em pé e deitado) e no tablet | mapa, lista e ficha ficam utilizáveis, sem rolagem lateral |
 | 17 | No celular do civil, tocar **ENCONTREI ALGO → Possível pista**, escrever e enviar | o painel avisa com som, o botão **Mensagens** mostra 1, o marcador laranja aparece no mapa; ao abrir, o civil vê "Lida por …" |
 | 18 | Responder pela ficha (**Conversa**) | o civil recebe o alerta em tela cheia e confirma |
@@ -572,42 +679,37 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 22a | No celular do civil, olhar o mapa com um militar andando e o responsável com "Minha posição" ligada | aparecem o ponto azul (você), o **M** vermelho e o **R** ciano; outros civis não aparecem |
 | 22b | No civil, tocar **FALAR COM OS BOMBEIROS**, escrever e enviar; responder pelo painel (ficha → Mensagens) | a conversa abre só ao tocar; a resposta chega como "Bombeiros" e o botão mostra o número de novas |
 | 22 | Criar uma operação de teste, registrar dados e **Excluir operação** (digitando o nome) | some da lista; o link/QR do participante para de funcionar; no Supabase, **Storage → fotos** não tem mais a pasta da operação |
+| 26 | Celular parado sobre uma mesa por 5 min | a trilha não vira um "novelo"; no diagnóstico (`&diag=1`) aparecem leituras descartadas como "oscilação parado" |
+| 27 | Enviar um destino a um civil com a página dele aberta | o cartão **IR ATÉ** aparece em poucos segundos, sem recarregar; a ficha mostra "✓ recebido no celular" |
+| 28 | Remover um civil e depois tocar em **Reincluir** | o celular dele mostra "Os bombeiros chamaram você de volta"; ao tocar, volta ao mesmo registro e a trilha continua |
+| 29 | No celular do civil, negar a localização e depois liberar pelas configurações | a página explica os passos e continua sozinha ao liberar (ou em VERIFICAR DE NOVO), sem novo cadastro |
+| 30 | Abrir uma operação nova no painel do celular | "Minha posição" liga sozinha (depois da permissão); desligar e religar não duplica |
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (254 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
-  supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda).
-  Foram verificadas as regras de RLS e de permissão (intruso, outro responsável, participante de
-  outra operação, acesso sem login), a validação e a deduplicação de posições, o tipo civil/militar
-  decidido pelo servidor, o ciclo de mensagens, o cadastro de responsáveis pelo painel (só
-  administradores, senha provisória, redefinir senha, desativar/reativar, proteção contra ficar sem
-  administrador), a equipe de responsáveis (adicionar, remover,
-  isolamento), a posição e as mensagens entre responsáveis, a validação de CPF e celular, o pedido
-  de encerramento (recusar e liberar), o encerramento com e sem retenção e a limpeza diária,
-  mensagens e relatos dos participantes (validação, limite, reenvio sem duplicar, "lida por",
-  isolamento), fotos (regras do Storage, caminho, registro, links assinados, quem vê) e a exclusão de
-  operação (permissões, transação, fila de arquivos, limpeza diária, isolamento das outras operações).
-- **Setores, pontos, navegação, topográfico e 3D no navegador (42 verificações)**: criação por raio e
-  por polígono, área, persistência após recarregar, situação, cobertura estimada, ajuste de limites
-  arrastando cantos, exclusão com confirmação, pontos por categoria com altitude, relato que vira
-  ponto, destino enviado ao celular (distância, direção, coordenadas, atualização ao andar, GPS
-  indisponível e impreciso, encerrar), setor e pontos visíveis só no que é permitido ao civil, trilhas
-  civis em roxo com contorno, topográfico mantendo todas as camadas, visão 3D com WebGL e altitude, e
-  uso no celular — com a CSP real e sem erros. No backend, mais 40 verificações (254 no total) de
-  permissões, validações, isolamento entre operações e limpeza.
-- **Ponta a ponta (142 verificações)**: no Chromium, com o painel no computador, no tablet e no
-  celular (em pé e deitado), dois celulares Android simulados com GPS em movimento e dois
-  responsáveis na mesma operação. Cobre todos os itens da tabela acima (inclusive mensagens, relatos,
-  fotos com e sem localização, galeria, menu Ferramentas, lista oculta e exclusão conferida direto no
-  banco e no armazenamento), a queda de internet com
-  recuperação sem duplicar pontos e a política CSP real do `vercel.json` (sem nenhum erro de
-  JavaScript ou de segurança).
-- **Administração no navegador (20 verificações)**: cadastro pelo painel, primeiro acesso com a senha
-  provisória, troca de senha em "Minha conta", redefinição, desativação (a pessoa perde o acesso na
-  hora) e reativação, no computador e no celular.
-- **Não testado ainda**: o Supabase Realtime real (no teste local ele estava indisponível de
-  propósito, o que validou o modo de contingência) e o **comportamento em celulares físicos**, como
-  GPS real, tela bloqueada e economia de bateria. Faça o roteiro acima antes do uso operacional.
+- **Backend (287 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+  supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda); a
+  migração 004 foi aplicada duas vezes seguidas (idempotente). Cobre RLS e permissões (intruso, outro
+  responsável, participante de outra operação, sem login), posições, tipo civil/militar decidido pelo
+  servidor, mensagens, cadastro de responsáveis, equipe, CPF/celular, pedido de saída, retenção e limpeza,
+  relatos, fotos, exclusão de operação, setores/pontos/destinos e, agora, **remover e reincluir** (mesmo
+  registro, trilha preservada, quem pode e quem não pode, operação encerrada, saída liberada, histórico) e
+  **destino do participante** (só o próprio, confirmação de recebimento, substituição).
+- **Correções no navegador (84 verificações)**, com um **Realtime simulado que aplica o RLS** como o
+  Supabase (só entrega a linha se o usuário puder lê-la) e um simulador de GPS/permissão:
+  localização do responsável ligando sozinha, desligar/religar sem duplicar observador, escolha
+  respeitada, permissão negada no painel e no participante (instruções, liberar e continuar sem refazer a
+  entrada), parado com oscilação (≤ 1 ponto em 30 s), andando (pontos a cada ~4 s), salto descartado,
+  precisão ruim, GPS desligado, destino recebido em < 1 s pelo tempo real e em ~15 s sem tempo real,
+  envio para vários, isolamento (outro participante não recebe nem lê o destino), recarregar a página
+  (participação e destino recuperados, sem duplicar), remover/reincluir com retorno ao mesmo registro e
+  mensagens de volta, menu no celular (ações perigosas no fim, com confirmações) e aviso de versão nova.
+- **Filtro de GPS (19 verificações)**: `node testes/filtro_gps.test.js`.
+- **Setores, pontos, navegação, topográfico e 3D (42)**, **ponta a ponta (143)** — este em modo de
+  contingência, sem tempo real — e **administração (20)**: todos passando depois das correções.
+- **Não testado**: o **Supabase Realtime real** (usado um simulador com o mesmo protocolo e a mesma regra
+  de RLS) e **celulares físicos** (GPS real, tela bloqueada, economia de bateria, cada navegador). Faça o
+  roteiro acima antes do uso operacional.
 
 ---
 

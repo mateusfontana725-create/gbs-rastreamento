@@ -5,5 +5,8 @@
   "description": "Rastreamento GPS de participantes em operações de busca e salvamento (Corpo de Bombeiros Militar).",
   "engines": {
     "node": ">=18"
+  },
+  "scripts": {
+    "test": "node testes/filtro_gps.test.js"
   }
 }
