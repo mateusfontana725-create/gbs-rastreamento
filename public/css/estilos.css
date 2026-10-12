@@ -1485,3 +1485,55 @@ body.conversa-aberta { overflow: hidden; }
 .lg-destino i { font-style: normal; }
 @media (prefers-reduced-motion: reduce) { .nav-seta, .nav-norte { transition: none !important; } }
 @media (max-width: 340px) { .nav-botoes { grid-template-columns: 1fr; } .nav-bussola { width: 80px; height: 80px; } }
+
+/* =====================================================================
+ * Correções: permissão de localização, destino, reinclusão, menu e GPS
+ * ===================================================================== */
+/* Página do participante: localização bloqueada/desligada */
+.permissao-caixa { border: 2px solid var(--perigo); background: #2a1214; color: #fee2e2; }
+.permissao-caixa h2 { margin: 0 0 6px; font-size: 1.2rem; }
+.perm-passos { margin: 8px 0 14px; padding-left: 22px; display: grid; gap: 8px; font-size: 1.02rem; line-height: 1.4; }
+.permissao-caixa .btn + .btn { margin-top: 8px; width: 100%; }
+.status-civil { flex-wrap: wrap; }
+.status-acao { margin-left: auto; background: #fff; color: #111; border-color: #fff; font-weight: 800; min-height: 40px; }
+.aviso-destino { margin: 0 0 10px; padding: 8px 12px; border-radius: var(--raio); background: var(--alerta-claro); border: 1px solid var(--alerta); color: var(--alerta-texto); font-size: .92rem; }
+.voltar-busca { border: 2px solid var(--ok); background: #0f2a1a; color: #dcfce7; }
+.voltar-busca h2 { margin: 0 0 6px; }
+.rodape-civil .btn-link { display: block; margin: 10px auto 0; color: var(--texto-3); }
+.faixa-versao {
+  position: fixed; z-index: 4000; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 24px); padding: 8px 12px;
+  background: var(--superficie-2); border: 1px solid var(--acento); border-radius: 10px; box-shadow: var(--sombra); color: var(--texto);
+}
+/* Diagnóstico do GPS */
+.modal-diag { max-width: 720px; }
+.diag-tabela { max-height: 50vh; overflow: auto; border: 1px solid var(--borda); border-radius: 6px; }
+.tabela-diag { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.tabela-diag th, .tabela-diag td { padding: 4px 6px; border-bottom: 1px solid var(--borda); text-align: left; white-space: nowrap; }
+.tabela-diag th { position: sticky; top: 0; background: var(--superficie-2); }
+.tabela-diag .diag-ok td:nth-child(2) { color: var(--ok-texto); }
+.tabela-diag .diag-desc td:nth-child(2) { color: var(--texto-3); }
+
+/* Painel: menu Ferramentas — ações perigosas no fim, separadas */
+.menu-nota { margin: 0 14px 6px 42px; color: var(--texto-3); font-size: .76rem; line-height: 1.35; }
+.menu-item.btn-minha-pos.parcial { background: var(--alerta-claro); color: var(--alerta-texto); }
+.menu-item.btn-minha-pos.parcial .menu-estado { color: var(--alerta-texto); }
+.menu-item.btn-minha-pos.bloqueado .menu-estado { color: var(--perigo-texto); }
+.menu-zona-perigo { margin-top: 18px; border-top: 2px dashed rgba(239, 68, 68, .55); padding-top: 12px; }
+.menu-zona-perigo h3 { color: var(--perigo-texto); }
+.menu-zona-perigo .menu-item { flex-wrap: wrap; row-gap: 2px; }
+.menu-zona-perigo .menu-estado { flex-basis: 100%; margin-left: 28px; white-space: normal; color: var(--texto-3); }
+.menu-separador-perigo { height: 14px; }
+.menu-item.menu-excluir { border: 1px solid rgba(239, 68, 68, .45); border-radius: 8px; margin: 0 8px; width: calc(100% - 16px); }
+
+/* Painel: participantes fora da operação (removidos ou com saída liberada) */
+.grupo-removidos { margin: 8px 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie-2); }
+.grupo-removidos > summary { cursor: pointer; padding: 10px 12px; font-weight: 700; list-style-position: inside; }
+.grupo-removidos > summary small { font-weight: 500; }
+.lista-removidos .lista-item { opacity: .85; }
+.btn-reincluir { font-weight: 800; }
+.ficha-situacao.fora { border-left: 4px solid var(--neutro); background: var(--neutro-claro); }
+.ficha-situacao.aguardando { border-left: 4px solid var(--responsavel); background: var(--responsavel-claro); }
+.ficha-situacao p { margin: 0 0 8px; }
+.destino-recebido { color: var(--ok-texto); font-weight: 700; }
+.destino-aguardando { color: var(--alerta-texto); font-weight: 700; }
