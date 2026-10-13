@@ -16,23 +16,35 @@
 (function (global) {
   'use strict';
 
+  // Valores revisados (v3). A versão anterior (v2) era restritiva demais: exigia
+  // afastamento de até 40 m parado, juntava os envios em lotes de 10 s e
+  // rejeitava qualquer velocidade acima de 43 km/h (quem ia de carro ficava sem
+  // trilha). Aqui: pontos frequentes andando, 1 por segundo em veículo, envio
+  // rápido, e "salto" só quando a velocidade é incoerente com o movimento recente.
   var PADRAO = {
-    precisaoBoaM: 25,          // até aqui a leitura é "boa"
-    precisaoMaximaM: 100,      // acima disso a leitura não entra na trilha
-    intervaloRuimMs: 60000,    // leitura imprecisa: no máximo 1 a cada 60 s, só como posição aproximada
-    intervaloMinimoMs: 4000,   // no máximo 1 ponto a cada 4 s
-    intervaloParadoMs: 60000,  // parado: 1 ponto a cada 60 s (confirma que continua ali)
-    distanciaMinimaM: 5,       // deslocamento mínimo considerado
-    fatorPrecisao: 1.5,        // mover menos que 1,5 × a precisão = oscilação de quem está parado
-    limiteOscilacaoM: 40,      // teto do limiar de oscilação
-    velocidadeMinimaMs: 0.7,   // velocidade informada pelo GPS que indica movimento real
-    confirmacoesMovimento: 2,  // sem velocidade do GPS: leituras seguidas fora do limiar para contar como movimento
-    velocidadeMaximaMs: 12,    // acima disso (≈43 km/h) entre dois pontos = salto suspeito
-    confirmacoesSalto: 3,      // leituras seguidas e coerentes para aceitar um deslocamento brusco
-    idadeMaximaMs: 30000,      // leitura mais velha que isso é antiga (cache do aparelho)
-    fatorDesenho: 0.75,        // painel: ponto a menos de 0,75 × precisão do anterior desenhado não vira vértice
-    lacunaTrilhaMs: 5 * 60000, // painel: sem pontos por mais que isso, a trilha é interrompida
-    diagnosticoMax: 300,
+    precisaoBoaM: 20,           // até aqui a leitura é "boa"
+    precisaoTrilhaM: 150,       // pior que isso: só posição aproximada (não entra na linha da trilha)
+    intervaloRuimMs: 30000,     // posição aproximada: no máximo 1 a cada 30 s
+    distanciaMinimaM: 3,        // deslocamento mínimo considerado
+    fatorOscilacao: 0.6,        // parado: afastamento menor que 0,6 × precisão é oscilação…
+    limiteOscilacaoM: 25,       // …limitado a 25 m (mata/vale com precisão ruim não "congela" a trilha)
+    confirmacoesMovimento: 3,   // afastamento ainda dentro da precisão: precisa se repetir em 3 leituras na mesma direção
+    velocidadeMinimaMs: 0.7,    // velocidade medida pelo GPS que indica movimento real
+    intervaloMinimoMs: 2000,    // a pé: no máximo 1 ponto a cada 2 s
+    velocidadeRapidaMs: 5,      // acima de 18 km/h: modo veículo
+    intervaloMinimoRapidoMs: 1000, // veículo: até 1 ponto por segundo…
+    distanciaMinimaRapidoM: 8,     // …a cada 8 m ou mais
+    intervaloParadoMs: 45000,   // parado: confirma a posição a cada 45 s
+    velocidadeBaseMs: 12,       // velocidade máxima aceita sem histórico (a pé/bicicleta)
+    fatorVelocidade: 2.5,       // ou 2,5 × a velocidade recente (carro acelerando, rodovia…)
+    velocidadeAbsurdaMs: 70,    // 252 km/h: nunca é movimento terrestre
+    confirmacoesSalto: 2,       // 2 leituras seguidas e coerentes confirmam um deslocamento brusco
+    idadeMaximaMs: 30000,       // leitura mais velha que isso é antiga (cache do aparelho)
+    // painel (desenho da trilha)
+    lacunaMs: 120000,           // sem pontos por 2 min e deslocou: lacuna (não liga com linha cheia)
+    lacunaDistanciaM: 50,
+    lacunaMaximaMs: 10 * 60000, // sem pontos por 10 min: sempre lacuna
+    diagnosticoMax: 400,
   };
 
   function mesclar(cfg) {
@@ -50,26 +62,32 @@
   }
 
   function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+  function med1(v) { v = v.slice().sort(function (a, b) { return a - b; }); return v[Math.floor(v.length / 2)]; }
+  function mediana(ls) {
+    return { lat: med1(ls.map(function (l) { return l.lat; })), lng: med1(ls.map(function (l) { return l.lng; })) };
+  }
   function r5(v) { return Math.round(v * 1e5) / 1e5; }
 
   var MOTIVOS = {
     primeiro_ponto: 'primeira leitura',
     primeiro_ponto_impreciso: 'primeira leitura (imprecisa, só aproximada)',
     movimento: 'deslocamento',
+    movimento_rapido: 'deslocamento (veículo)',
     parado_periodico: 'parado (confirmação periódica)',
-    aproximado: 'imprecisa: só posição aproximada, fora da trilha',
-    salto_confirmado: 'deslocamento brusco confirmado (trilha interrompida)',
+    aproximado: 'imprecisa: posição aproximada, fora da linha da trilha',
+    salto_confirmado: 'deslocamento brusco confirmado por leituras seguidas',
     coordenada_invalida: 'coordenada inválida',
     leitura_antiga: 'leitura antiga (cache)',
     duplicada: 'leitura repetida',
     fora_de_ordem: 'fora de ordem',
-    baixa_precisao: 'precisão ruim',
-    salto_suspeito: 'salto/velocidade impossível',
+    baixa_precisao: 'precisão ruim (aguardando)',
+    salto_suspeito: 'salto incoerente (aguardando confirmação)',
     intervalo_curto: 'intervalo curto',
     oscilacao_parado: 'oscilação parado',
     negado: 'erro: permissão negada',
     indisponivel: 'erro: localização do aparelho desligada/indisponível',
     sem_sinal: 'erro: sem leitura no tempo limite',
+    servidor_recusou: 'servidor recusou pontos (horário fora da operação)',
   };
 
   /* ------------------------------------------------------------------ */
@@ -77,21 +95,22 @@
   /* ------------------------------------------------------------------ */
   function Filtro(cfg) {
     this.cfg = mesclar(cfg);
-    this.ancora = null;          // último ponto BOM aceito na trilha
+    this.diag = [];
+    this.contagem = {};
+    this.offsets = [];
+    this.reiniciar();
+  }
+
+  Filtro.prototype.reiniciar = function () {
+    this.ancora = null;          // último ponto aceito na linha da trilha
     this.ultimoRuimT = 0;        // último ponto impreciso aceito (aproximado)
     this.ultimaLeitura = null;   // última leitura válida (para a tela)
     this.suspeitos = [];
     this.foraDoLimiar = 0;
-    this.offsets = [];
-    this.diag = [];
-    this.contagem = {};
-  }
-
-  Filtro.prototype.reiniciar = function () {
-    this.ancora = null;
-    this.ultimoRuimT = 0;
-    this.suspeitos = [];
-    this.foraDoLimiar = 0;
+    this.velRecente = 0;         // m/s: velocidade recente (GPS ou deslocamento líquido dos últimos pontos)
+    this.recentes = [];          // últimas 3 leituras válidas (decisão parado/andando)
+    this.ancoraMed = null;
+    this.aceitos = [];           // últimos 4 pontos aceitos (velocidade líquida e retidão)
   };
 
   Filtro.prototype.registrar = function (leitura, aceito, motivo, extra) {
@@ -103,20 +122,44 @@
       lat: leitura ? r5(leitura.lat) : null,
       lng: leitura ? r5(leitura.lng) : null,
       prec: leitura && leitura.prec != null ? Math.round(leitura.prec) : null,
-      idade_s: leitura ? Math.round((leitura.recebidaEm - leitura.t) / 1000) : null,
+      idade_s: leitura ? Math.round((leitura.recebidaEm - leitura.t) / 100) / 10 : null,
       vel: leitura && leitura.vel != null ? Math.round(leitura.vel * 10) / 10 : null,
       dist: extra && extra.dist != null ? Math.round(extra.dist) : null,
-      dt_s: extra && extra.dt != null ? Math.round(extra.dt / 1000) : null,
+      dt_s: extra && extra.dt != null ? Math.round(extra.dt / 100) / 10 : null,
     };
     this.diag.push(e);
     if (this.diag.length > this.cfg.diagnosticoMax) this.diag.splice(0, this.diag.length - this.cfg.diagnosticoMax);
     return e;
   };
 
+  // Velocidade máxima aceitável agora (sem confirmação), conforme o movimento recente.
+  Filtro.prototype.velocidadeMaxima = function (vel) {
+    var cfg = this.cfg;
+    var v = Math.max(cfg.velocidadeBaseMs, cfg.fatorVelocidade * this.velRecente, vel != null ? vel * 1.5 + 5 : 0);
+    return Math.min(v, cfg.velocidadeAbsurdaMs);
+  };
+
+  // Veículo: velocidade do GPS alta, ou deslocamento recente rápido E em linha
+  // (a oscilação de quem está parado vai e volta e não forma uma linha).
+  Filtro.prototype.emMovimentoRapido = function (vel) {
+    if (vel != null) return vel >= this.cfg.velocidadeRapidaMs;
+    return this.velRecente >= this.cfg.velocidadeRapidaMs && this.retidao() >= 0.7;
+  };
+
+  Filtro.prototype.retidao = function () {
+    var p = this.aceitos;
+    if (p.length < 3) return 0;
+    var soma = 0;
+    for (var i = 1; i < p.length; i++) soma += distancia(p[i - 1].lat, p[i - 1].lng, p[i].lat, p[i].lng);
+    return soma > 0 ? distancia(p[0].lat, p[0].lng, p[p.length - 1].lat, p[p.length - 1].lng) / soma : 0;
+  };
+
   // Recebe a posição do navegador (GeolocationPosition) e devolve:
   //   atual  -> leitura que pode ser mostrada como "onde estou agora" (ou null)
-  //   ponto  -> ponto a gravar na trilha (ou null)  { lat, lng, prec, t, quebra? }
+  //   pontos -> pontos a gravar na trilha, em ordem ([] se nenhum) { lat, lng, prec, t }
+  //   ponto  -> o último deles (ou null)
   //   motivo -> código do motivo (MOTIVOS)
+  //   rapido -> true se está em deslocamento rápido (veículo)
   Filtro.prototype.processar = function (pos, agora) {
     var cfg = this.cfg;
     agora = agora || Date.now();
@@ -124,7 +167,7 @@
     var lat = c ? num(c.latitude) : null, lng = c ? num(c.longitude) : null;
     if (lat == null || lng == null || lat < -90 || lat > 90 || lng < -180 || lng > 180 || (lat === 0 && lng === 0)) {
       this.registrar(null, false, 'coordenada_invalida');
-      return { atual: null, ponto: null, motivo: 'coordenada_invalida' };
+      return this.resultado(null, [], 'coordenada_invalida');
     }
     var ts = num(pos.timestamp);
     var t;
@@ -143,34 +186,37 @@
     var prec = num(c.accuracy);
     if (prec != null && prec < 0) prec = null;
     var vel = num(c.speed);
-    if (vel != null && vel < 0) vel = null;
+    if (vel != null && (vel < 0 || vel > cfg.velocidadeAbsurdaMs)) vel = null;
     var leitura = { lat: lat, lng: lng, prec: prec, t: t, vel: vel, recebidaEm: agora };
 
     if (agora - t > cfg.idadeMaximaMs) {
       this.registrar(leitura, false, 'leitura_antiga');
-      return { atual: null, ponto: null, motivo: 'leitura_antiga' };
+      return this.resultado(null, [], 'leitura_antiga');
     }
     var u = this.ultimaLeitura;
     if (u && u.t === t && u.lat === lat && u.lng === lng) {
       // a mesma leitura repetida não é sinal novo: não "renova" a posição atual
       this.registrar(leitura, false, 'duplicada');
-      return { atual: null, ponto: null, motivo: 'duplicada' };
+      return this.resultado(null, [], 'duplicada');
     }
     var a = this.ancora;
     if (a && t <= a.t) {
       this.registrar(leitura, false, 'fora_de_ordem');
-      return { atual: null, ponto: null, motivo: 'fora_de_ordem' };
+      return this.resultado(null, [], 'fora_de_ordem');
     }
     this.ultimaLeitura = leitura;
-    var ruim = prec != null && prec > cfg.precisaoMaximaM;
+    if (vel != null) this.velRecente = 0.5 * this.velRecente + 0.5 * vel;
+    this.recentes.push(leitura);
+    if (this.recentes.length > 3) this.recentes.shift();
+    var ruim = prec != null && prec > cfg.precisaoTrilhaM;
 
     if (!a) {
       if (ruim) {
-        if (t - this.ultimoRuimT < cfg.intervaloRuimMs) return this.descartar(leitura, 'baixa_precisao');
+        if (this.ultimoRuimT && t - this.ultimoRuimT < cfg.intervaloRuimMs) return this.descartar(leitura, 'baixa_precisao');
         this.ultimoRuimT = t;
-        return this.aceitar(leitura, 'primeiro_ponto_impreciso', null, true);
+        return this.aceitar([leitura], 'primeiro_ponto_impreciso', null, true);
       }
-      return this.aceitar(leitura, 'primeiro_ponto');
+      return this.aceitar([leitura], 'primeiro_ponto');
     }
 
     var dt = t - a.t;
@@ -178,66 +224,113 @@
     var extra = { dist: d, dt: dt };
 
     if (ruim) {
-      // Não move a âncora: a trilha continua a partir do último ponto bom.
+      // Não move a âncora: a linha continua a partir do último ponto confiável.
       if (t - Math.max(this.ultimoRuimT, a.t) < cfg.intervaloRuimMs) return this.descartar(leitura, 'baixa_precisao', extra);
       this.ultimoRuimT = t;
-      return this.aceitar(leitura, 'aproximado', extra, true);
+      return this.aceitar([leitura], 'aproximado', extra, true);
     }
 
-    // Salto: distância maior que a soma das incertezas, a uma velocidade impossível a pé.
+    // Salto: distância maior que a soma das incertezas, numa velocidade incoerente
+    // com o movimento recente. Não descarta de vez: se as leituras seguintes
+    // confirmarem o novo local (ex.: entrou num carro), todas entram na trilha.
     var incerteza = (prec || 0) + (a.prec || 0) + 20;
-    if (d > incerteza && d / Math.max(dt / 1000, 1) > cfg.velocidadeMaximaMs) {
+    var vImplicita = d / Math.max(dt / 1000, 0.5);
+    if (d > incerteza && vImplicita > this.velocidadeMaxima(vel)) {
       var s = this.suspeitos;
       var ult = s[s.length - 1];
       if (ult) {
         var ds = distancia(ult.lat, ult.lng, lat, lng);
-        var dts = Math.max((t - ult.t) / 1000, 1);
-        var coerente = ds <= (prec || 0) + (ult.prec || 0) + 20 || ds / dts <= cfg.velocidadeMaximaMs;
+        var dts = Math.max((t - ult.t) / 1000, 0.5);
+        var coerente = ds <= (prec || 0) + (ult.prec || 0) + 20 || ds / dts <= cfg.velocidadeAbsurdaMs;
         if (!coerente) s.length = 0;
       }
       s.push(leitura);
       if (s.length >= cfg.confirmacoesSalto) {
+        var conf = s.slice();
         this.suspeitos = [];
-        return this.aceitar(leitura, 'salto_confirmado', extra, false, true);
+        var ultimo = conf[conf.length - 1], primeiro = conf[0];
+        var dtc = Math.max((ultimo.t - primeiro.t) / 1000, 0.5);
+        this.velRecente = Math.max(this.velRecente, distancia(primeiro.lat, primeiro.lng, ultimo.lat, ultimo.lng) / dtc);
+        return this.aceitar(conf, 'salto_confirmado', extra);
       }
       return this.descartar(leitura, 'salto_suspeito', extra);
     }
     this.suspeitos = [];
 
-    // Parado x andando. Com a velocidade medida pelo GPS (efeito Doppler), basta ela.
-    // Sem ela, o afastamento precisa se repetir em leituras seguidas: a oscilação
-    // de quem está parado vai e volta; o deslocamento real se mantém.
-    var limiar = Math.max(cfg.distanciaMinimaM,
-      Math.min(cfg.limiteOscilacaoM, cfg.fatorPrecisao * Math.max(prec || 0, a.prec || 0)));
+    var rapido = this.emMovimentoRapido(vel);
+    if (rapido) {
+      if (dt < cfg.intervaloMinimoRapidoMs) return this.descartar(leitura, 'intervalo_curto', extra);
+      if (d >= cfg.distanciaMinimaRapidoM) return this.aceitar([leitura], 'movimento_rapido', extra);
+    }
+
+    // Parado x andando. Afastamento fora do círculo de precisão = movimento.
+    // Dentro dele: vale a velocidade medida pelo GPS (efeito Doppler) ou o
+    // afastamento se repetir (a oscilação vai e volta; o deslocamento real se mantém).
+    // A decisão usa também a mediana das 3 últimas leituras (só para decidir: o
+    // ponto gravado é sempre a leitura real) — um pico isolado não vira passo.
+    var maiorPrec = Math.max(prec || 0, a.prec || 0);
+    var limiar = Math.max(cfg.distanciaMinimaM, Math.min(cfg.limiteOscilacaoM, cfg.fatorOscilacao * maiorPrec));
+    var med = mediana(this.recentes);
+    var ref = this.ancoraMed || a;   // mediana no momento do último ponto (menos sensível à oscilação)
+    var dMed = distancia(ref.lat, ref.lng, med.lat, med.lng);
     var porVelocidade = vel != null && vel >= cfg.velocidadeMinimaMs && d >= cfg.distanciaMinimaM;
-    if (d >= limiar) this.foraDoLimiar++; else this.foraDoLimiar = 0;
-    // Afastamento de mais que o dobro do limiar já é deslocamento claro (leituras espaçadas).
-    var movendo = porVelocidade || d >= 2 * limiar || this.foraDoLimiar >= cfg.confirmacoesMovimento;
+    // GPS informa que está parado (velocidade ~0): só um afastamento claro conta.
+    var gpsParado = vel != null && vel < 0.3 && d < 1.5 * Math.max(maiorPrec, limiar);
+    // o afastamento precisa manter a mesma direção (a oscilação muda de direção a cada leitura)
+    var kLng = Math.cos(ref.lat * Math.PI / 180);
+    var vet = [(med.lat - ref.lat) * 111320, (med.lng - ref.lng) * 111320 * kLng];
+    var mesmaDirecao = !this.vetorAnterior || (vet[0] * this.vetorAnterior[0] + vet[1] * this.vetorAnterior[1]) >
+      0.5 * Math.hypot(vet[0], vet[1]) * Math.hypot(this.vetorAnterior[0], this.vetorAnterior[1]);
+    if (d >= limiar && dMed >= limiar && mesmaDirecao) this.foraDoLimiar++;
+    else this.foraDoLimiar = d >= limiar && dMed >= limiar ? 1 : 0;
+    this.vetorAnterior = dMed >= limiar ? vet : null;
+    var movendo = porVelocidade || (!gpsParado && d >= limiar && dMed >= limiar &&
+      (dMed >= Math.max(maiorPrec, 2 * limiar) || this.foraDoLimiar >= cfg.confirmacoesMovimento));
     if (dt < cfg.intervaloMinimoMs) return this.descartar(leitura, 'intervalo_curto', extra);
-    if (movendo) return this.aceitar(leitura, 'movimento', extra);
-    if (dt >= cfg.intervaloParadoMs) return this.aceitar(leitura, 'parado_periodico', extra);
+    if (movendo) return this.aceitar([leitura], 'movimento', extra);
+    if (dt >= cfg.intervaloParadoMs) return this.aceitar([leitura], 'parado_periodico', extra);
     return this.descartar(leitura, 'oscilacao_parado', extra);
   };
 
-  Filtro.prototype.aceitar = function (leitura, motivo, extra, aproximado, quebra) {
+  Filtro.prototype.resultado = function (atual, pontos, motivo) {
+    return { atual: atual, pontos: pontos, ponto: pontos.length ? pontos[pontos.length - 1] : null, motivo: motivo, rapido: this.emMovimentoRapido(null) };
+  };
+
+  Filtro.prototype.aceitar = function (leituras, motivo, extra, aproximado) {
+    var self = this;
+    var pontos = leituras.map(function (l) {
+      return {
+        lat: Math.round(l.lat * 1e7) / 1e7,
+        lng: Math.round(l.lng * 1e7) / 1e7,
+        prec: l.prec == null ? null : Math.round(l.prec * 10) / 10,
+        t: l.t,
+      };
+    });
+    var ultima = leituras[leituras.length - 1];
     if (!aproximado) {
-      this.ancora = { lat: leitura.lat, lng: leitura.lng, prec: leitura.prec, t: leitura.t };
+      leituras.forEach(function (l) { self.aceitos.push(l); });
+      while (this.aceitos.length > 4) this.aceitos.shift();
+      // sem velocidade do GPS: velocidade LÍQUIDA (primeiro→último dos últimos pontos)
+      if (ultima.vel == null && this.aceitos.length >= 2) {
+        var p0 = this.aceitos[0];
+        var dtA = (ultima.t - p0.t) / 1000;
+        if (dtA > 0) this.velRecente = 0.5 * this.velRecente + 0.5 * (distancia(p0.lat, p0.lng, ultima.lat, ultima.lng) / dtA);
+      }
+      if (motivo === 'parado_periodico') this.velRecente *= 0.3;
+      this.ancora = { lat: ultima.lat, lng: ultima.lng, prec: ultima.prec, t: ultima.t };
+      // referência para decidir o próximo passo: a mediana das últimas leituras
+      // (em veículo, a própria leitura)
+      this.ancoraMed = this.recentes.length >= 3 && !this.emMovimentoRapido(ultima.vel) ? mediana(this.recentes) : null;
       this.foraDoLimiar = 0;
+      this.vetorAnterior = null;
     }
-    this.registrar(leitura, true, motivo, extra);
-    var ponto = {
-      lat: Math.round(leitura.lat * 1e7) / 1e7,
-      lng: Math.round(leitura.lng * 1e7) / 1e7,
-      prec: leitura.prec == null ? null : Math.round(leitura.prec * 10) / 10,
-      t: leitura.t,
-    };
-    if (quebra) ponto.quebra = true;
-    return { atual: leitura, ponto: ponto, motivo: motivo };
+    leituras.forEach(function (l, i) { self.registrar(l, true, motivo, i === leituras.length - 1 ? extra : null); });
+    return this.resultado(ultima, pontos, motivo);
   };
 
   Filtro.prototype.descartar = function (leitura, motivo, extra) {
     this.registrar(leitura, false, motivo, extra);
-    return { atual: leitura, ponto: null, motivo: motivo };
+    return this.resultado(leitura, [], motivo);
   };
 
   Filtro.prototype.resumo = function () {
@@ -251,40 +344,41 @@
   /* Trilha no painel: segmentos a desenhar                               */
   /* ------------------------------------------------------------------ */
   // pontos: [{ t, lat, lng, prec }] em ordem cronológica.
-  // Não liga pontos imprecisos, separados por longa pausa ou por um salto
-  // impossível; parado, não desenha o vaivém da oscilação. Os dados
-  // guardados não mudam — só o que é desenhado.
-  function segmentosTrilha(pontos, cfg) {
+  // Devolve { segmentos: [[lat,lng]…], lacunas: [{ de:[lat,lng], ate:[lat,lng], t0, t1 }] }.
+  // Liga TODOS os pontos registrados (nenhum vértice é escondido), exceto:
+  //   - pontos aproximados (precisão pior que precisaoTrilhaM): não entram na linha;
+  //   - repetidos (mesmo horário e lugar);
+  //   - intervalos sem registro (lacuna) e saltos impossíveis: a linha é interrompida
+  //     e a lacuna é devolvida à parte, para ser desenhada de forma diferente.
+  function trilha(pontos, cfg) {
     cfg = mesclar(cfg);
-    var segs = [], seg = [], ant = null, ultDesenhado = null;
+    var segs = [], seg = [], lacunas = [], ant = null;
     for (var i = 0; i < pontos.length; i++) {
       var pt = pontos[i];
       if (pt == null || num(pt.lat) == null || num(pt.lng) == null) continue;
-      if (pt.prec != null && pt.prec > cfg.precisaoMaximaM) continue;
+      if (pt.prec != null && pt.prec > cfg.precisaoTrilhaM) continue;
       if (ant) {
         var dt = pt.t - ant.t;
         if (dt <= 0 && pt.lat === ant.lat && pt.lng === ant.lng) continue;   // repetido
         var d = distancia(ant.lat, ant.lng, pt.lat, pt.lng);
-        var salto = d > (pt.prec || 0) + (ant.prec || 0) + 20 && d / Math.max(dt / 1000, 1) > cfg.velocidadeMaximaMs;
-        if (dt > cfg.lacunaTrilhaMs || salto) {
+        var incerteza = (pt.prec || 0) + (ant.prec || 0) + 20;
+        var impossivel = d > incerteza && d / Math.max(dt / 1000, 0.5) > cfg.velocidadeAbsurdaMs;
+        var semRegistro = dt > cfg.lacunaMaximaMs || (dt > cfg.lacunaMs && d > Math.max(cfg.lacunaDistanciaM, incerteza));
+        if (impossivel || semRegistro) {
           if (seg.length) segs.push(seg);
           seg = [];
-          ultDesenhado = null;
+          lacunas.push({ de: [ant.lat, ant.lng], ate: [pt.lat, pt.lng], t0: ant.t, t1: pt.t, impossivel: impossivel });
         }
       }
-      ant = pt;
-      if (ultDesenhado) {
-        var dd = distancia(ultDesenhado.lat, ultDesenhado.lng, pt.lat, pt.lng);
-        var lim = Math.max(cfg.distanciaMinimaM * 0.6,
-          Math.min(cfg.limiteOscilacaoM, cfg.fatorDesenho * Math.max(pt.prec || 0, ultDesenhado.prec || 0)));
-        if (dd < lim) continue;   // oscilação: não desenha o vaivém
-      }
       seg.push([pt.lat, pt.lng]);
-      ultDesenhado = pt;
+      ant = pt;
     }
     if (seg.length) segs.push(seg);
-    return segs;
+    return { segmentos: segs, lacunas: lacunas };
   }
+
+  // Compatibilidade: só os segmentos.
+  function segmentosTrilha(pontos, cfg) { return trilha(pontos, cfg).segmentos; }
 
   /* ------------------------------------------------------------------ */
   /* Permissão de localização                                             */
@@ -395,6 +489,7 @@
     Filtro: Filtro,
     distancia: distancia,
     segmentosTrilha: segmentosTrilha,
+    trilha: trilha,
     consultarPermissao: consultarPermissao,
     ambiente: ambiente,
     instrucoesLocalizacao: instrucoesLocalizacao,

@@ -1537,3 +1537,28 @@ body.conversa-aberta { overflow: hidden; }
 .ficha-situacao p { margin: 0 0 8px; }
 .destino-recebido { color: var(--ok-texto); font-weight: 700; }
 .destino-aguardando { color: var(--alerta-texto); font-weight: 700; }
+
+/* =====================================================================
+ * Rota por caminhos reais e lacunas da trilha
+ * ===================================================================== */
+.nav-modos { display: flex; gap: 6px; margin: 10px 0 6px; flex-wrap: wrap; }
+.nav-modos .btn { flex: 1; min-width: 88px; min-height: 40px; }
+.nav-modos .btn[aria-pressed="true"] { background: #2563eb; border-color: #93c5fd; color: #fff; }
+.nav-rota-info { margin: 4px 0 8px; padding: 8px 10px; border-radius: 8px; background: rgba(37, 99, 235, .14); border: 1px solid rgba(147, 197, 253, .45); }
+.nav-rota-info.erro { background: rgba(245, 158, 11, .12); border-color: var(--alerta); }
+.nav-rota-resumo { margin: 0; font-weight: 800; font-size: 1.02rem; }
+.nav-proxima { margin: 6px 0 0; font-size: 1.05rem; font-weight: 700; color: #bfdbfe; }
+.nav-avisos-rota { margin: 6px 0 0; padding-left: 18px; font-size: .88rem; display: grid; gap: 3px; }
+.nav-avisos-rota .nav-limites { list-style: none; margin-left: -18px; opacity: .8; font-size: .8rem; }
+.nav-passos-caixa { margin-top: 6px; font-size: .9rem; }
+.nav-passos-caixa summary { cursor: pointer; font-weight: 700; }
+.nav-passos { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 4px; max-height: 40vh; overflow: auto; }
+.lg-linha-rota { display: inline-block; width: 18px; height: 4px; border-radius: 2px; background: #2563eb; box-shadow: 0 0 0 1px #fff; vertical-align: middle; }
+/* painel: modo ao enviar destino e resumo da rota na ficha */
+.opcoes-modo { display: grid; gap: 6px; }
+.opcao-modo { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--borda); border-radius: 8px; cursor: pointer; }
+.opcao-modo span { display: flex; flex-direction: column; }
+.opcao-modo small { color: var(--texto-3); }
+.opcao-modo:has(input:checked) { border-color: #93c5fd; background: rgba(37, 99, 235, .14); }
+.ficha-rota { display: block; margin-top: 4px; color: #bfdbfe; font-size: .88rem; }
+.lg-lacuna { display: inline-block; width: 18px; height: 0; border-top: 2px dotted #9ca3af; vertical-align: middle; }

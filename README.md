@@ -188,21 +188,30 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
 1. O responsável escolhe o destino: **Enviar como destino** nos detalhes de um ponto, **🧭 Destino** na
    ficha do participante (ponto de interesse ou **Escolher no mapa**), **Enviar o centro como destino**
    num setor, ou **Ferramentas → Enviar destino a participantes**; marca para quem (ou **Marcar todos**).
-2. No celular do participante aparece o cartão **🧭 IR ATÉ** (com vibração e aviso) e o destino no mapa,
-   com uma linha tracejada amarela **em linha reta**.
-3. O cartão mostra o **nome**, a **distância em linha reta**, a **direção** (ex.: "para o Nordeste, 45°"),
-   as **coordenadas** e uma seta. Atualiza a cada leitura do GPS.
+   Escolhe também **como ir**: **A pé** (ruas, calçadas e caminhos), **Trilha** (prioriza trilhas e
+   caminhos de terra — para mata) ou **Carro**.
+2. No celular do participante aparece o cartão **🧭 IR ATÉ** (com vibração e aviso) e o destino no mapa.
+   O celular calcula a **rota por ruas, caminhos e trilhas reais** (ver "Rota por caminhos" abaixo) e
+   desenha em **azul**; a linha amarela fina em linha reta fica só como referência de direção. O
+   participante pode trocar o modo (🚶 A pé · 🥾 Trilha · 🚗 Carro) no próprio cartão.
+3. O cartão mostra o **nome**, a **distância que falta pela rota** (e a distância em linha reta), o
+   **tempo estimado**, **subida e descida**, a **próxima instrução** ("Em 200 m: vire à direita na
+   Rua X"), a lista de instruções, os avisos do terreno, as **coordenadas** e uma seta que aponta para a
+   rota à frente (ou para o destino, se a pessoa estiver longe da rota). Atualiza a cada leitura do GPS.
+   Se a pessoa sair da rota (mais de 50 m por 3 leituras), a rota é **recalculada** a partir de onde ela
+   está (no máximo 1 vez a cada 30 s). Sem rota (serviço fora, sem internet, sem caminho mapeado), volta
+   a mostrar a distância e a direção em linha reta e diz o motivo.
    - **Bússola**: no Android (Chrome) a seta gira com o celular ("siga a seta"). No iPhone aparece o botão
      **Usar a bússola do celular** (o iOS exige permissão). Sem bússola confiável, a seta aponta em
      relação ao **Norte (N)** — e o texto diz isso.
    - **Sem GPS**: mostra "Sem GPS" e não calcula nada. **GPS impreciso** (± 50 m ou pior): avisa que a
      distância e a direção são aproximadas. Ao chegar (a até 15 m ou dentro da precisão): "Você chegou".
    - Sempre avisa: **linha reta não é caminho** — conferir o terreno e seguir os bombeiros.
-4. **Rota por estradas/trilhas**: o botão **Rota no app de mapas ↗** abre o Google Maps (a pé) com o
-   destino. O aplicativo **não calcula rota nem tempo de chegada**: quem calcula é o app de mapas, quando
-   houver caminho mapeado. Em mata sem trilhas, vale só a direção em linha reta.
+4. **Rota no app de mapas ↗**: continua disponível como alternativa (Google Maps, a pé ou de carro,
+   conforme o modo escolhido).
 5. **Encerrar navegação**: pelo participante (botão no cartão) ou pelo responsável (ficha → **Encerrar**).
-   A ficha mostra o destino ativo e desenha a linha até ele. Um novo destino substitui o anterior.
+   A ficha mostra o destino ativo, a **rota** da posição do participante até ele (distância, tempo,
+   subida, avisos) e a desenha no mapa. Um novo destino substitui o anterior.
 6. **Como o destino chega ao celular** (sem recarregar a página):
    - **na hora**, pelo Supabase Realtime: o celular assina as mudanças da tabela `destinos` filtradas pelo
      próprio participante; o RLS só entrega o destino **dele** (política `destinos_ler_participante`);
@@ -213,6 +222,31 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
      responsável vê **"✓ recebido no celular às HH:MM"** ou **"aguardando o celular receber"**;
    - se a verificação falhar, o celular mostra um aviso em vez de ficar em silêncio. Se o servidor ainda não
      tiver a migração 004, a página usa a consulta antiga (`mapa_do_participante`) e continua recebendo.
+
+### Rota por caminhos (serviço de roteamento)
+
+- **Serviço escolhido: openrouteservice** (HeiGIT/Universidade de Heidelberg), sobre dados do
+  OpenStreetMap: tem perfis **a pé** (`foot-walking`), **trilha** (`foot-hiking`, que usa trilhas e
+  caminhos de terra) e **carro** (`driving-car`), instruções em português, **altitude** em cada ponto da
+  rota (subida/descida) e informações de **inclinação**, **tipo de via** e **dificuldade de trilha**
+  (escala SAC). Tem conta gratuita com cota diária e pode ser **instalado no próprio servidor** do órgão
+  (variável `ORS_URL`), o que elimina a dependência de um serviço público para operação crítica.
+- **Como foi integrado**: o navegador chama `/api/rota` (função da Vercel). A função confere o login
+  (participante ativo — só para si mesmo — ou responsável ativo), limita a 20 cálculos por minuto por
+  pessoa e só então chama o openrouteservice com a chave **ORS_API_KEY, que fica só no servidor**.
+  Nenhuma coordenada da rota é gravada. Não foi preciso mudar a CSP (a chamada é para o próprio site).
+- **Relevo e terreno**: a rota evita **vaus** (travessia de rio sem ponte) e **balsas**; se não houver
+  outro caminho, aceita e **avisa**. Os trechos com **inclinação de 10% ou mais** aparecem em laranja/
+  vermelho no mapa e no resumo, com a porcentagem do trajeto. O perfil Trilha informa a **dificuldade da
+  trilha** quando mapeada. A distância até o caminho mapeado mais próximo (no começo e no fim) aparece
+  como trecho cinza tracejado, com aviso de que **não há caminho conhecido** ali.
+- **Limites (sempre mostrados na tela)**: a rota segue só o que está mapeado no OpenStreetMap; **não é
+  uma análise de segurança** — não conhece mata fechada, rio cheio, área alagada, deslizamento, cerca ou
+  trilha não mapeada; a altitude vem de modelo de terreno (resolução de dezenas de metros); em áreas
+  pouco mapeadas a rota pode dar voltas grandes ou não existir. Na mata sem trilhas, vale a direção em
+  linha reta e a orientação dos bombeiros.
+- **Sem a chave configurada**, o celular mostra "Rota por caminhos indisponível: o serviço de rotas não
+  está configurado" e continua com a navegação em linha reta.
 
 ### Remover e reincluir participante
 
@@ -262,30 +296,42 @@ A tela do civil é propositalmente simples, para quem está nervoso procurando a
 - Ao recarregar a página (ou reabrir o link) com a permissão já concedida, a participação **retoma
   sozinha**, com o mesmo cadastro e o destino ativo.
 
-### Trilhas GPS: filtros de estabilidade
+### Trilhas GPS: captura, envio e desenho
 
-O mesmo filtro (`public/js/gps.js`) é usado no celular do participante e na "Minha posição" do responsável.
-**Nenhuma posição é inventada nem suavizada**: cada ponto gravado é uma leitura real; o filtro só decide
-quais leituras entram na trilha.
+O mesmo código (`public/js/gps.js`) é usado no celular do participante (civil ou militar) e na "Minha
+posição" do responsável. **Nenhuma posição é inventada nem suavizada**: cada ponto gravado é uma leitura
+real do aparelho; o filtro só decide quais leituras entram na trilha.
 
-| Situação | O que acontece (valores padrão em `GPS.PADRAO`) |
+**Revisão desta versão (por que a trilha "demorava" e "quase não pegava")**: a versão anterior a esta
+correção (v2) tinha três problemas, verificados no código e nos testes:
+1. **Parado/andando muito rígido**: exigia afastamento de até 1,5 × a precisão (até 40 m) para registrar
+   movimento — com precisão de 20–30 m (comum em mata e cidade), a pessoa andava dezenas de metros sem
+   novo ponto;
+2. **Envio em lote a cada 10 s**: mesmo com ponto novo, ele só saía do celular até 10 s depois;
+3. **Carro bloqueado**: qualquer velocidade acima de 43 km/h era tratada como "salto impossível"; de
+   carro, praticamente nenhum ponto entrava.
+A primeira versão (v1) aceitava todo ponto a cada 5 m/5 s, o que respondia rápido mas desenhava
+zigue-zague com a pessoa parada. A versão atual junta as duas coisas:
+
+| Etapa | Como funciona agora (valores em `GPS.PADRAO`) |
 |---|---|
-| Coleta | `watchPosition` com alta precisão, `maximumAge: 0` (nunca usa cache) e `timeout: 30 s`; um único observador; parado, pede uma leitura nova a cada 45 s; sem leituras por 90 s com a tela aberta, reinicia o observador |
-| Envio | separado da coleta: pontos aceitos vão para a fila do aparelho e são enviados **em lote a cada 10 s** (o 1º na hora); sem internet ficam guardados |
-| Leitura antiga, repetida, fora de ordem ou inválida (0,0, NaN) | descartada (com correção automática se o relógio do GPS e o do celular forem diferentes) |
-| Precisão pior que 100 m | não entra na trilha; no máximo **1 ponto aproximado por minuto**, para o painel saber a região |
-| Parado (oscilação) | afastamento menor que 1,5 × a precisão (mín. 5 m, máx. 40 m) é tratado como oscilação; confirma a posição a cada 60 s |
-| Andando | entra com a velocidade medida pelo GPS (≥ 0,7 m/s) ou com afastamento que se mantém em 2 leituras seguidas (ou maior que o dobro do limiar); no máximo 1 ponto a cada 4 s — pequenos deslocamentos reais acumulam e entram |
-| Salto / velocidade impossível (> 12 m/s ≈ 43 km/h, além da soma das incertezas) | descartado; se 3 leituras seguidas confirmarem o novo local (ex.: foi de carro), é aceito e a trilha é **interrompida** ali |
-| Desenho no painel | em ordem cronológica; não liga pontos imprecisos, separados por mais de 5 min ou por salto impossível; não desenha o vaivém de quem está parado. Os pontos guardados não mudam (histórico completo na ficha) |
+| Captura | `watchPosition` com alta precisão, `maximumAge: 0`, `timeout: 30 s`, usando os **eventos reais do GPS** (não um temporizador). Um único observador; parado, pede leitura nova a cada 45 s; sem leituras por 90 s com a tela aberta, reinicia o observador |
+| A pé | ponto quando o afastamento sai do círculo de precisão, ou com a velocidade medida pelo GPS (≥ 0,7 m/s), ou quando o afastamento se mantém por 3 leituras **na mesma direção**; no máximo 1 ponto a cada 2 s. Na prática: ~1 ponto a cada 3 s andando (com velocidade do GPS) ou a cada ~5 s (sem ela) |
+| Veículo | acima de 18 km/h (velocidade do GPS, ou deslocamento rápido e em linha): **até 1 ponto por segundo**, a cada 8 m |
+| Parado | oscilação menor que 0,6 × a precisão (de 3 a 25 m) não vira trilha; com o GPS informando velocidade 0, só um afastamento claro conta; confirma a posição a cada 45 s |
+| Saltos | só é "salto" o que for incoerente com o movimento recente (> 12 m/s sem histórico, ou > 2,5 × a velocidade recente; nunca acima de 252 km/h). Um pico isolado é descartado; se a leitura seguinte confirmar o novo local (ex.: entrou num carro), **as duas entram** — nada de pontos intermediários perdidos |
+| Precisão | até 150 m entra na trilha (com as regras acima); pior que 150 m vira "posição aproximada" (no máximo 1 a cada 30 s), fora da linha da trilha |
+| Leituras ruins | antiga (> 30 s), repetida, fora de ordem ou inválida (0,0, NaN): descartada. Relógio do GPS diferente do celular: corrigido. Relógio do celular errado: o horário dos pontos é convertido para o do servidor antes do envio (o servidor recusaria pontos "do futuro") |
+| Envio | separado da captura: fila no aparelho (sobrevive a falta de internet e a recarregar a página) e envio **~1,5 s** após o ponto a pé e **~1 s** em veículo (o 1º na hora), vários pontos por envio; sem internet, tenta de novo com espera crescente e envia tudo na ordem quando volta, sem duplicar (identificador único por ponto) |
+| Painel | recebe cada ponto pelo tempo real (com conferência periódica de reserva), insere na ordem cronológica e redesenha no quadro seguinte da tela. **Todos os pontos viram vértices** (nada é escondido). A linha só é interrompida em **lacuna** (mais de 2 min sem pontos com deslocamento, ou 10 min) ou salto impossível; a lacuna aparece como linha **cinza pontilhada** com o horário ("Sem posições registradas de 10:02 a 10:21 — o percurso real é desconhecido"). Pontos de pessoas diferentes nunca se ligam |
+| Medição | o histórico da ficha mostra, para cada ponto, **quanto tempo levou da captura até chegar ao servidor** (coluna "Chegou") |
 
 - **Diagnóstico**: **Ferramentas → Diagnóstico do GPS** (responsável) e, no participante, abrindo o link com
-  `&diag=1` no fim (botão "Diagnóstico do GPS" no rodapé). Mostra cada leitura: hora, aceita/descartada e
-  o **motivo**, precisão, distância, idade e coordenadas arredondadas. Fica **só no aparelho** (não é
-  enviado e não tem nome, CPF ou telefone).
+  `&diag=1` no fim. Mostra cada leitura: hora, aceita/descartada e o **motivo**, precisão, distância,
+  idade e coordenadas arredondadas. Fica **só no aparelho**.
 - Trilha civil continua **roxa #A020F0 com contorno claro**.
-- Os parâmetros podem ser ajustados em `public/js/gps.js` (`PADRAO`); o teste `node testes/filtro_gps.test.js`
-  confere o comportamento (parado, andando, devagar, salto, imprecisão, leituras antigas, relógio).
+- Teste do filtro: `npm test` (ou `node testes/filtro_gps.test.js`) — parado, andando, devagar, mata, carro,
+  arrancada, picos, precisão ruim, leituras antigas, relógio, lacunas.
 
 ### Mapa topográfico e relevo em 3D
 
@@ -372,17 +418,20 @@ rastreamento-sar/
 │       ├── interface.js        avisos e caixas de confirmação
 │       ├── fotos.js            fotos: leitura de EXIF, redução, prévia, envio ao Storage privado
 │       ├── gps.js              filtro das leituras do GPS, montagem das trilhas, permissão e diagnóstico
+│       ├── rotas.js            rota por caminhos: pede a /api/rota, desenha e acompanha o progresso
 │       ├── militar.js          lógica do painel
 │       └── civil.js            lógica do participante (GPS, fila offline, mensagens, relatos, fotos)
 ├── api/
 │   ├── config.js               entrega ao navegador só a URL e a chave PÚBLICA (de variáveis de ambiente)
 │   ├── limpeza.js              limpeza diária dos dados vencidos (usa a chave SECRETA, só no servidor)
-│   └── responsaveis.js         cria login e redefine senha de responsáveis (só administradores; chave SECRETA)
+│   ├── responsaveis.js         cria login e redefine senha de responsáveis (só administradores; chave SECRETA)
+│   └── rota.js                 rota por caminhos (openrouteservice; chave ORS_API_KEY só no servidor)
 ├── supabase/
 │   ├── schema.sql              instalação completa e idempotente (inclui todas as migrações)
 │   └── migracoes/
 │       ├── 003_setores_pontos_navegacao.sql   setores, pontos de interesse e destinos
-│       └── 004_destinos_reinclusao.sql        destino recebido pelo participante e reinclusão
+│       ├── 004_destinos_reinclusao.sql        destino recebido pelo participante e reinclusão
+│       └── 005_modo_destino.sql               modo do destino (a pé, trilha, carro)
 ├── testes/filtro_gps.test.js   teste do filtro de GPS (node, sem dependências)
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
@@ -420,7 +469,11 @@ rastreamento-sar/
    - substitui `remover_participante` e `liberar_participante` (registram quem/quando e encerram o destino
      ativo) e cria `reincluir_participante`, `confirmar_destino` e `meu_destino`;
    - termina com `notify pgrst, 'reload schema'` para a API reconhecer as funções novas na hora.
-   O `schema.sql` completo já inclui a 003 e a 004 (seções 10 e 11).
+   **Migração 005** (`supabase/migracoes/005_modo_destino.sql`, idempotente, exige a 004): acrescenta
+   `destinos.modo` ('a_pe', 'trilha', 'carro'; padrão 'a_pe'), o parâmetro opcional `p_modo` em
+   `definir_destino` e o modo na resposta de `meu_destino` e `mapa_do_participante`. Sem ela, o destino
+   continua funcionando (o painel envia sem o modo e o celular usa "a pé").
+   O `schema.sql` completo já inclui a 003, a 004 e a 005 (seções 10, 11 e 12).
 3. Ative o ingresso dos participantes: **Authentication → Sign In / Providers** (ou **Providers**) →
    ligue **Allow anonymous sign-ins** → **Save**.
    *Cada celular recebe uma identidade anônima; ela só serve para ingressar com o token do link.*
@@ -472,6 +525,8 @@ rastreamento-sar/
    | `SUPABASE_PUBLISHABLE_KEY` | chave publishable (ou anon) |
    | `SUPABASE_SECRET_KEY` | chave secret (ou service_role) — usada na limpeza diária e no cadastro de responsáveis |
    | `CRON_SECRET` | um texto aleatório longo — gere com `openssl rand -hex 32` |
+   | `ORS_API_KEY` | token do openrouteservice (rota por caminhos) — crie em <https://openrouteservice.org> (Sign up → API Keys). Sem ele, o destino funciona só em linha reta |
+   | `ORS_URL` | (opcional) endereço de um openrouteservice próprio; padrão `https://api.openrouteservice.org` |
 
 4. Clique em **Deploy**.
 
@@ -576,6 +631,7 @@ identidades anônimas sem participação há mais de 7 dias são removidas. A li
 | Mensagens e relatos | o participante só lê a própria conversa; os responsáveis leem as da operação. Envio só pela função `participante_enviar_mensagem` (valida participante, operação ativa, tipo, texto ≤ 1000 caracteres, coordenadas; limite de 20 por minuto; reenvio sem duplicar) |
 | Fotos | bucket **privado**: não existe link público. A imagem só é vista por **link temporário assinado (1 h)**, gerado apenas para os responsáveis da operação ou para o próprio autor. O envio só é aceito na pasta `operação/participante/` do próprio participante, com a operação ativa, JPEG até 10 MB; o registro (`registrar_foto`) confere que o arquivo existe e valida as coordenadas |
 | Setores, pontos e destinos | leitura só pelos responsáveis da operação (RLS); gravação só pelas funções, que conferem a equipe da operação; excluir só por quem criou o registro, quem criou a operação ou um administrador; participantes recebem só o próprio setor, pontos de encontro/risco e o próprio destino (`mapa_do_participante`, `meu_destino` e a política `destinos_ler_participante`, que só libera a linha do próprio participante — inclusive no tempo real); um destino só é enviado a participante da mesma operação |
+| Rota por caminhos | a chave do openrouteservice fica só na variável `ORS_API_KEY` da Vercel; `/api/rota` exige login (participante ativo, só para si; ou responsável ativo), limita a 20 cálculos/min por pessoa, valida coordenadas e distância e não grava nada |
 | Remover e reincluir | remover não apaga dados; reincluir só por responsável da operação ativa (`reincluir_participante`), reativando o mesmo registro; histórico em `participacao_eventos` (só responsáveis leem); participante não remove nem reinclui ninguém |
 | Exclusão de operação | só o criador ou um administrador da equipe (`excluir_operacao`, verificado no banco); transação única; arquivos removidos do Storage com fila de pendências e limpeza diária; tokens invalidados na hora |
 | Validação de dados | latitude/longitude/precisão/horário validados no servidor; lote máximo de 500 pontos; orientação até 500 caracteres; limite de 60 orientações por minuto e de 300 participantes por operação |
@@ -684,32 +740,35 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 | 28 | Remover um civil e depois tocar em **Reincluir** | o celular dele mostra "Os bombeiros chamaram você de volta"; ao tocar, volta ao mesmo registro e a trilha continua |
 | 29 | No celular do civil, negar a localização e depois liberar pelas configurações | a página explica os passos e continua sozinha ao liberar (ou em VERIFICAR DE NOVO), sem novo cadastro |
 | 30 | Abrir uma operação nova no painel do celular | "Minha posição" liga sozinha (depois da permissão); desligar e religar não duplica |
+| 31 | Andar 5 min em rua e 5 min em mata, com o painel aberto | a trilha acompanha (pontos a cada poucos segundos); na ficha, coluna "Chegou" com poucos segundos |
+| 32 | Ir de carro por 2–3 km com a página do civil aberta | a trilha segue o percurso do carro quase em tempo real, sem "saltos" descartados |
+| 33 | Enviar um destino "A pé" e depois trocar para "Carro" no celular | rota azul por ruas, com tempo e instruções; ao trocar, recalcula pelas vias de carro; ao sair da rota, recalcula |
+| 34 | Ficar 5 min sem sinal de GPS andando (ex.: túnel/mata densa) | a trilha mostra o trecho sem dados como linha cinza pontilhada, não como linha contínua |
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (287 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
-  supabase-js real, inclusive **por cima de um banco da versão anterior** (atualização sem perda); a
-  migração 004 foi aplicada duas vezes seguidas (idempotente). Cobre RLS e permissões (intruso, outro
-  responsável, participante de outra operação, sem login), posições, tipo civil/militar decidido pelo
-  servidor, mensagens, cadastro de responsáveis, equipe, CPF/celular, pedido de saída, retenção e limpeza,
-  relatos, fotos, exclusão de operação, setores/pontos/destinos e, agora, **remover e reincluir** (mesmo
-  registro, trilha preservada, quem pode e quem não pode, operação encerrada, saída liberada, histórico) e
-  **destino do participante** (só o próprio, confirmação de recebimento, substituição).
-- **Correções no navegador (84 verificações)**, com um **Realtime simulado que aplica o RLS** como o
-  Supabase (só entrega a linha se o usuário puder lê-la) e um simulador de GPS/permissão:
-  localização do responsável ligando sozinha, desligar/religar sem duplicar observador, escolha
-  respeitada, permissão negada no painel e no participante (instruções, liberar e continuar sem refazer a
-  entrada), parado com oscilação (≤ 1 ponto em 30 s), andando (pontos a cada ~4 s), salto descartado,
-  precisão ruim, GPS desligado, destino recebido em < 1 s pelo tempo real e em ~15 s sem tempo real,
-  envio para vários, isolamento (outro participante não recebe nem lê o destino), recarregar a página
-  (participação e destino recuperados, sem duplicar), remover/reincluir com retorno ao mesmo registro e
-  mensagens de volta, menu no celular (ações perigosas no fim, com confirmações) e aviso de versão nova.
-- **Filtro de GPS (19 verificações)**: `node testes/filtro_gps.test.js`.
-- **Setores, pontos, navegação, topográfico e 3D (42)**, **ponta a ponta (143)** — este em modo de
-  contingência, sem tempo real — e **administração (20)**: todos passando depois das correções.
-- **Não testado**: o **Supabase Realtime real** (usado um simulador com o mesmo protocolo e a mesma regra
-  de RLS) e **celulares físicos** (GPS real, tela bloqueada, economia de bateria, cada navegador). Faça o
-  roteiro acima antes do uso operacional.
+- **Backend (311 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+  supabase-js real, inclusive por cima de um banco da versão anterior (sem perda); as migrações 004 e 005
+  foram aplicadas duas vezes seguidas (idempotentes). Cobre RLS e permissões, posições, mensagens,
+  responsáveis, retenção e limpeza, fotos, exclusão, setores/pontos/destinos, remover/reincluir, destino do
+  participante e, agora, o **modo do destino** e a **função `/api/rota`** (quem pode pedir, participante só
+  para si, coordenadas e distâncias inválidas, serviço fora do ar, sem chave configurada, perfis a pé/
+  trilha/carro, altitude, inclinação, instruções em português, chave nunca exposta).
+- **Navegador (104 verificações)**, com **Realtime simulado que aplica o RLS**, simulador de GPS/permissão e
+  **openrouteservice simulado** (mesmo formato de resposta da API real): localização do responsável,
+  permissões, parado, **andando (~1 ponto a cada 3 s)**, **atraso medido: nova posição no painel em ~1,5 s
+  (mediana) e captura → servidor em ~1,5 s**, **carro a 72 km/h: 29 pontos em 30 s**, salto descartado,
+  **lacuna desenhada à parte**, precisão ruim, GPS desligado, destino em < 1 s (tempo real) e ~15 s (sem),
+  **rota a pé com tempo, subida, trechos íngremes e instruções**, **troca para carro/trilha com o perfil
+  certo**, **recálculo ao sair da rota**, rota na ficha do painel, isolamento entre participantes,
+  recarregar a página, remover/reincluir, menu e aviso de versão nova.
+- **Filtro de GPS (31 verificações)**: `npm test`.
+- **Setores, pontos, navegação, topográfico e 3D (42)**, **ponta a ponta (143)** — sem tempo real, com
+  movimento realista e queda de internet — e **administração (20)**: todos passando.
+- **Não testado**: o **openrouteservice real** (não há chave neste ambiente e a rede de testes não chega
+  ao serviço; foi usado um simulador com o mesmo formato), o **Supabase Realtime real** e **celulares
+  físicos** (GPS real em mata/cidade/carro, tela bloqueada, economia de bateria, cada navegador). Faça o
+  roteiro acima antes do uso operacional, anotando a coluna "Chegou" do histórico.
 
 ---
 
@@ -727,6 +786,11 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   - **Esri World Imagery** (satélite) — os termos da Esri pedem conta ArcGIS para uso em produção;
   - **Terrain Tiles / AWS Open Data** (relevo 3D e altitude) — gratuito, atribuição exigida (já exibida no 3D);
   - **Google Maps** (botão "Rota no app de mapas") — só abre o app/site do usuário; nenhuma chave é usada.
+  - **openrouteservice** (rota por caminhos) — exige conta e token (gratuito com cota diária e por minuto,
+    mostradas no painel da conta HeiGIT). Cada cálculo de rota conta 1 pedido (ao receber o destino, ao
+    trocar o modo, ao sair da rota — no máximo 1 a cada 30 s por pessoa — e na ficha do painel, a cada
+    5 min ou 100 m). Para operações grandes ou críticas, use um plano maior ou instale o openrouteservice
+    num servidor próprio (`ORS_URL`).
   Para uso intenso ou institucional, contrate um provedor de mapas (ex.: MapTiler, Stadia, Esri) e troque
   as URLs em `public/js/militar.js` (`criarMapa` e `BASES_3D`) e na CSP do `vercel.json`. Nenhuma chave
   ou cadastro é necessário para o que foi implementado.

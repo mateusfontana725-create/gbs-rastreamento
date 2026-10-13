@@ -18,8 +18,7 @@
     conectadoMs: 45000,          // contato nos últimos 45 s = conectado
     instavelMs: 120000,          // 45 s a 2 min = sinal instável; acima = sem atualização
     posicaoAntigaMs: 120000,     // posição com mais de 2 min = "antiga"
-    lacunaTrilhaMs: 5 * 60000,   // intervalo maior que 5 min quebra a trilha (não liga pontos)
-    precisaoTrilhaM: 100,        // pontos com precisão pior não entram na trilha
+    precisaoTrilhaM: 150,        // pontos com precisão pior são só "posição aproximada" (fora da linha da trilha)
     pollingOkMs: 20000,          // conferência periódica com tempo real funcionando
     pollingFalhaMs: 8000,        // conferência periódica quando o tempo real cai
   };
@@ -42,7 +41,7 @@
   var COMANDOS_RESPONSAVEL = ['ATENCAO', 'CONFIRME', 'PERSONALIZADA'];
 
   // "Minha posição": o filtro das leituras está em gps.js (o mesmo da página do participante).
-  var CFG_GPS = { sinalVidaMs: 15000, intervaloEnvioMs: 10000, reiniciarMs: 90000 };
+  var CFG_GPS = { sinalVidaMs: 15000, envioRapidoMs: 1000, envioPeMs: 1500, reiniciarMs: 90000 };
 
   var CHAVE_AJUDA_VISTA = 'sar-militar-ajuda-vista';
   var CHAVE_LATERAL = 'gbs-painel-lateral-oculta';
@@ -137,6 +136,9 @@
     setores: new Map(),         // id → { d: dados, camada }
     pontosInt: new Map(),       // id → { d: dados, marcador }
     destinos: new Map(),        // participante_id → destino ativo
+    rotasFicha: new Map(),      // destino:modo → { rota, origem, em, calculando, erro }
+    camadaRotaFicha: null,
+    rotaFichaChave: null,
     camadaSetores: null,
     camadaPontosInt: null,
     linhaDestino: null,
@@ -662,6 +664,9 @@
     est.pontosInt = new Map();
     est.destinos = new Map();
     est.camadaSetores = est.camadaPontosInt = est.linhaDestino = est.marcaDestino = null;
+    est.rotasFicha = new Map();
+    est.camadaRotaFicha = null;
+    est.rotaFichaChave = null;
     est.centralVoltar = false;
     clearTimeout(est.timerNotif);
     est.filaNotif = [];
@@ -715,6 +720,7 @@
       if (p.marcador) p.marcador.remove();
       if (p.trilha) p.trilha.remove();
       if (p.halo) p.halo.remove();
+      if (p.lacunas) p.lacunas.remove();
     });
     limparAreasDoMapa();
     if (est.circuloPrecisao) { est.circuloPrecisao.remove(); est.circuloPrecisao = null; }
@@ -820,6 +826,8 @@
           '<div><span class="mk-relato mk-relato-legenda"><span>P</span></span> Relato do participante</div>' +
           '<div><span class="mk-poi mk-poi-legenda poi-ENCONTRO"><span>E</span></span> Ponto de interesse (letra = categoria)</div>' +
           '<div><span class="setor-legenda"></span> Setor de busca (tracejado = pendente)</div>' +
+          '<div><span class="lg-linha-rota"></span> Rota até o destino (por caminhos)</div>' +
+          '<div><span class="lg-lacuna"></span> Trecho sem posições registradas</div>' +
           '</details>';
         L.DomEvent.disableClickPropagation(div);
         return div;
@@ -1035,7 +1043,7 @@
       parts.forEach(upsertParticipante);
 
       var pontos = await C.consultarTudo(function () {
-        return C.cliente.from('posicoes').select('id,participante_id,lat,lng,precisao,registrado_em')
+        return C.cliente.from('posicoes').select('id,participante_id,lat,lng,precisao,registrado_em,recebido_em')
           .eq('operacao_id', opId).order('id', { ascending: true });
       });
       if (!est.op || est.op.id !== opId) return;
@@ -1097,7 +1105,7 @@
       parts.forEach(upsertParticipante);
 
       var novos = await C.consultarTudo(function () {
-        return C.cliente.from('posicoes').select('id,participante_id,lat,lng,precisao,registrado_em')
+        return C.cliente.from('posicoes').select('id,participante_id,lat,lng,precisao,registrado_em,recebido_em')
           .eq('operacao_id', opId).gt('id', est.maxPosId).order('id', { ascending: true });
       });
       if (!est.op || est.op.id !== opId) return;
@@ -1465,7 +1473,9 @@
       est.pontosOrfaos.push(row);
       return;
     }
-    var pt = { id: row.id, t: C.paraMs(row.registrado_em), lat: row.lat, lng: row.lng, prec: row.precisao };
+    // t = capturado pelo GPS; rec = chegou ao servidor; exib = mostrado neste painel
+    var pt = { id: row.id, t: C.paraMs(row.registrado_em), lat: row.lat, lng: row.lng, prec: row.precisao,
+      rec: C.paraMs(row.recebido_em), exib: C.agora() };
     // insere na ordem temporal correta (pontos enviados depois de uma queda chegam fora de ordem)
     var arr = p.pontos;
     var i = arr.length;
@@ -1507,15 +1517,17 @@
   // Não liga pontos imprecisos, separados por longa pausa ou por salto
   // impossível, nem desenha o vaivém de quem está parado (gps.js). Os pontos
   // guardados não mudam: o histórico completo continua na ficha.
-  function segmentosDe(p) {
-    return window.GPS.segmentosTrilha(p.pontos, { precisaoMaximaM: LIM.precisaoTrilhaM, lacunaTrilhaMs: LIM.lacunaTrilhaMs });
+  function trilhaDe(p) {
+    return window.GPS.trilha(p.pontos, { precisaoTrilhaM: LIM.precisaoTrilhaM });
   }
 
   function pesoTrilha(p) { return est.selecionado === p.id ? 6 : 4; }
 
   function desenharTrilha(p) {
     if (!est.mapa) return;
-    var segs = p.trilhaVisivel ? segmentosDe(p) : [];
+    var tr = p.trilhaVisivel ? trilhaDe(p) : { segmentos: [], lacunas: [] };
+    var segs = tr.segmentos;
+    desenharLacunas(p, tr.lacunas);
     if (!segs.length) {   // oculta ou sem pontos: nada a desenhar
       if (p.trilha) p.trilha.remove();
       if (p.halo) p.halo.remove();
@@ -1545,6 +1557,24 @@
       p.trilha.setLatLngs(segs);
     }
     if (!est.mapa.hasLayer(p.trilha)) p.trilha.addTo(est.mapa);
+  }
+
+  // Lacuna: período sem posições registradas em que a pessoa se deslocou. É
+  // desenhada como uma linha cinza fina pontilhada (não é percurso registrado).
+  function desenharLacunas(p, lacunas) {
+    if (!lacunas.length) { if (p.lacunas) { p.lacunas.remove(); p.lacunas = null; } return; }
+    if (!p.lacunas) p.lacunas = L.layerGroup().addTo(est.mapa);
+    var assinatura = lacunas.map(function (l) { return l.t0 + '-' + l.t1; }).join('|');
+    if (p.lacunas._assinatura === assinatura) return;
+    p.lacunas._assinatura = assinatura;
+    p.lacunas.clearLayers();
+    lacunas.forEach(function (l) {
+      var min = Math.max(1, Math.round((l.t1 - l.t0) / 60000));
+      L.polyline([l.de, l.ate], { color: '#9ca3af', weight: 2, opacity: 0.8, dashArray: '2 7', interactive: true, className: 'trilha-lacuna' })
+        .bindTooltip('Sem posições registradas de ' + C.hora(l.t0, false) + ' a ' + C.hora(l.t1, false) + ' (' + min + ' min)' +
+          (l.impossivel ? ' — salto incoerente' : '') + '. O percurso real nesse trecho é desconhecido.', { sticky: true })
+        .addTo(p.lacunas);
+    });
   }
 
   // A trilha de quem está com a ficha aberta fica mais grossa (fácil de seguir entre várias).
@@ -1827,6 +1857,7 @@
         ? UI.el('span', { classe: 'destino-recebido', texto: '✓ recebido no celular às ' + C.hora(destino.recebido_em, false) + ' ' })
         : UI.el('span', { classe: 'destino-aguardando', texto: 'aguardando o celular receber ' }));
       caixaDest.appendChild(UI.el('button', { classe: 'btn btn-pequeno btn-link', type: 'button', texto: 'Encerrar', onclick: function () { encerrarDestinoPainel(destino); } }));
+      caixaDest.appendChild(UI.el('span', { classe: 'ficha-rota', id: 'ficha-rota', hidden: true }));
     }
     $('ficha-enviar-destino').hidden = tipoDe(d) === 'responsavel' || d.removido || est.op.status !== 'ativa';
     desenharLinhaDestino();
@@ -1931,9 +1962,9 @@
     $('ficha-qtd-pontos').textContent = String(p.pontos.length);
     var linhasHist = p.pontos.slice(-50).reverse().map(function (pt) {
       return '<tr><td class="num">' + C.hora(pt.t) + '</td><td class="mono">' + C.coord(pt.lat) + '</td><td class="mono">' +
-        C.coord(pt.lng) + '</td><td class="num">' + C.esc(C.precisao(pt.prec)) + '</td></tr>';
+        C.coord(pt.lng) + '</td><td class="num">' + C.esc(C.precisao(pt.prec)) + '</td><td class="num">' + textoAtraso(pt) + '</td></tr>';
     }).join('');
-    $('ficha-hist').innerHTML = linhasHist || '<tr><td colspan="4" class="muted">Sem posições registradas.</td></tr>';
+    $('ficha-hist').innerHTML = linhasHist || '<tr><td colspan="5" class="muted">Sem posições registradas.</td></tr>';
 
     $('ficha-remover').hidden = d.removido || est.op.status !== 'ativa' || ehResp;
     atualizarSituacaoFicha(p);
@@ -1991,6 +2022,13 @@
     } catch (e) {
       UI.aviso(e.message, 'erro');
     }
+  }
+
+  // Atraso entre a captura pelo GPS e a chegada ao servidor (diagnóstico de campo).
+  function textoAtraso(pt) {
+    if (!pt.rec || !pt.t) return '—';
+    var s = Math.max(0, Math.round((pt.rec - pt.t) / 1000));
+    return s < 60 ? s + ' s' : Math.round(s / 60) + ' min';
   }
 
   /* ------------------------------------------------------------------ */
@@ -3209,7 +3247,7 @@
     var f = FAIXA_COBERTURA_M;
     var segs = [];
     est.participantes.forEach(function (p) {
-      segmentosDe(p).forEach(function (seg) {
+      trilhaDe(p).segmentos.forEach(function (seg) {
         var ant = null;
         seg.forEach(function (ll) {
           var q = pr.xy(ll[0], ll[1]);
@@ -3850,10 +3888,19 @@
     }) : [UI.el('p', { classe: 'muted', texto: 'Nenhum participante ativo nesta operação.' })]);
     var erro = UI.el('p', { classe: 'erro-form', role: 'alert', hidden: true });
     var btn = UI.el('button', { classe: 'btn btn-escuro', type: 'submit', id: 'destino-enviar', texto: 'Enviar destino' });
+    var modos = UI.el('div', { classe: 'opcoes-modo', role: 'radiogroup', 'aria-label': 'Como o participante vai até lá' },
+      Object.keys(window.Rotas.MODOS).map(function (k, i) {
+        var m = window.Rotas.MODOS[k];
+        return UI.el('label', { classe: 'opcao-modo' }, [
+          UI.el('input', { type: 'radio', name: 'destino-modo', value: k, checked: i === 0 ? true : null }),
+          UI.el('span', null, [UI.el('strong', { texto: m.icone + ' ' + m.rotulo }), UI.el('small', { texto: m.descricao })]),
+        ]);
+      }));
     var form = UI.el('form', { novalidate: true }, [
       UI.el('h2', { id: 'modal-titulo', texto: 'Enviar destino' }),
       UI.el('p', { classe: 'ajuda', texto: 'O celular de cada participante escolhido mostra o destino no mapa, a distância em linha reta e a direção. Coordenadas: ' + C.coord(alvo.lat) + ', ' + C.coord(alvo.lng) + '.' }),
       UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'destino-nome', texto: 'Nome do destino (o participante vê este nome)' }), nome]),
+      UI.el('div', { classe: 'grupo' }, [UI.el('span', { classe: 'rotulo', texto: 'Rota até lá (o celular calcula por ruas, caminhos e trilhas)' }), modos]),
       UI.el('div', { classe: 'grupo' }, [
         UI.el('div', { classe: 'linha-rotulo' }, [UI.el('span', { classe: 'rotulo', texto: 'Para quem' }),
           lista.length ? UI.el('button', { classe: 'btn btn-pequeno', type: 'button', texto: 'Marcar todos', onclick: function () { caixas.querySelectorAll('input').forEach(function (c) { c.checked = true; }); } }) : null]),
@@ -3865,6 +3912,7 @@
     form.addEventListener('submit', async function (ev) {
       ev.preventDefault();
       var ids = Array.from(caixas.querySelectorAll('input:checked')).map(function (c) { return c.value; });
+      var modoSel = (form.querySelector('input[name="destino-modo"]:checked') || {}).value || 'a_pe';
       var n = nome.value.replace(/\s+/g, ' ').trim();
       if (!n) { erro.textContent = 'Informe o nome do destino.'; erro.hidden = false; return; }
       if (!ids.length) { erro.textContent = 'Escolha pelo menos um participante.'; erro.hidden = false; return; }
@@ -3872,7 +3920,15 @@
       var ok = 0, falhas = [];
       for (var i = 0; i < ids.length; i++) {
         try {
-          var d = await C.rpc('definir_destino', { p_participante: ids[i], p_nome: n, p_lat: alvo.lat, p_lng: alvo.lng, p_ponto: alvo.ponto_id || null });
+          var args = { p_participante: ids[i], p_nome: n, p_lat: alvo.lat, p_lng: alvo.lng, p_ponto: alvo.ponto_id || null, p_modo: modoSel };
+          var d;
+          try {
+            d = await C.rpc('definir_destino', args);
+          } catch (e1) {
+            if (e1.codigo !== 'funcao_ausente') throw e1;
+            delete args.p_modo;   // banco sem a migração 005: envia sem o modo
+            d = await C.rpc('definir_destino', args);
+          }
           est.destinos.set(d.participante_id, d);
           ok++;
         } catch (e) {
@@ -3923,6 +3979,8 @@
   function desenharLinhaDestino() {
     if (est.linhaDestino) { est.linhaDestino.remove(); est.linhaDestino = null; }
     if (est.marcaDestino) { est.marcaDestino.remove(); est.marcaDestino = null; }
+    var d0 = est.mapa && est.selecionado && !$('ficha').hidden ? est.destinos.get(est.selecionado) : null;
+    if (!d0) limparRotaFicha();
     if (!est.mapa || !est.selecionado || $('ficha').hidden) return;
     var d = est.destinos.get(est.selecionado);
     if (!d) return;
@@ -3932,7 +3990,59 @@
     }).addTo(est.mapa);
     var p = est.participantes.get(est.selecionado);
     var pos = p && posicaoAtual(p);
-    if (pos) est.linhaDestino = L.polyline([[pos.lat, pos.lng], [d.lat, d.lng]], { color: '#facc15', weight: 2, dashArray: '4 8', interactive: false }).addTo(est.mapa);
+    if (pos) est.linhaDestino = L.polyline([[pos.lat, pos.lng], [d.lat, d.lng]], { color: '#facc15', weight: 2, dashArray: '4 8', opacity: 0.6, interactive: false }).addTo(est.mapa);
+    if (pos) rotaDaFicha(est.selecionado, d, pos);
+  }
+
+  /* ---------- Rota por caminhos reais (ficha) ------------------------- */
+  // A ficha mostra a rota calculada da posição do participante até o destino dele
+  // (mesmo serviço e mesmo modo que o celular dele usa). Recalcula se ele andar
+  // mais de 100 m ou a cada 5 min.
+  function rotaDaFicha(pid, d, pos) {
+    var modo = d.modo || 'a_pe';
+    var chave = d.id + ':' + modo;
+    var c = est.rotasFicha.get(chave);
+    var longe = c && c.origem && window.GPS.distancia(c.origem[0], c.origem[1], pos.lat, pos.lng) > 100;
+    var velha = c && Date.now() - c.em > 5 * 60000;
+    if (!c || ((longe || velha) && !c.calculando && Date.now() - c.em > 30000)) {
+      c = { calculando: true, em: Date.now(), origem: [pos.lat, pos.lng], rota: c ? c.rota : null, erro: null };
+      est.rotasFicha.set(chave, c);
+      window.Rotas.calcular({ origem: [pos.lat, pos.lng], destino: [d.lat, d.lng], modo: modo }).then(function (r) {
+        c.calculando = false;
+        c.em = Date.now();
+        if (r.ok) { c.rota = r.rota; c.erro = null; } else { c.erro = r.mensagem; }
+        if (est.selecionado === pid && !$('ficha').hidden) { est.rotaFichaChave = null; desenharRotaFicha(chave, c); atualizarResumoRotaFicha(c); }
+      });
+    }
+    desenharRotaFicha(chave, c);
+    atualizarResumoRotaFicha(c);
+  }
+
+  function desenharRotaFicha(chave, c) {
+    if (!est.mapa) return;
+    if (!est.camadaRotaFicha) est.camadaRotaFicha = L.layerGroup().addTo(est.mapa);
+    var marca = chave + ':' + (c.rota ? c.rota.calculada_em : '');
+    if (est.rotaFichaChave === marca) return;
+    est.rotaFichaChave = marca;
+    est.camadaRotaFicha.clearLayers();
+    if (c.rota) window.Rotas.desenhar(est.camadaRotaFicha, c.rota, { peso: 4 });
+  }
+
+  function atualizarResumoRotaFicha(c) {
+    var el = $('ficha-rota');
+    if (!el) return;
+    var txt = c.rota ? window.Rotas.resumo(c.rota) + (c.calculando ? ' (atualizando…)' : '') +
+      (c.rota.avisos && c.rota.avisos.length ? ' · ' + c.rota.avisos.join(' ') : '')
+      : c.calculando ? 'Calculando a rota por caminhos…' : 'Rota por caminhos indisponível: ' + (c.erro || '') ;
+    if (el.textContent !== txt) el.textContent = txt;
+    el.hidden = false;
+  }
+
+  function limparRotaFicha() {
+    if (est.camadaRotaFicha) est.camadaRotaFicha.clearLayers();
+    est.rotaFichaChave = null;
+    var el = $('ficha-rota');
+    if (el) el.hidden = true;
   }
 
   /* ---------- Lista de setores e pontos ------------------------------ */
@@ -4148,7 +4258,7 @@
     var trilhas = { type: 'FeatureCollection', features: [] };
     est.participantes.forEach(function (p) {
       if (!p.trilhaVisivel) return;
-      segmentosDe(p).forEach(function (seg) {
+      trilhaDe(p).segmentos.forEach(function (seg) {
         if (seg.length < 2) return;
         trilhas.features.push({ type: 'Feature', properties: { cor: p.cor }, geometry: { type: 'LineString', coordinates: seg.map(function (q) { return [q[1], q[0]]; }) } });
       });
@@ -4420,13 +4530,13 @@
       est.gpsMeu = a.prec != null && a.prec > 50 ? 'fraco' : 'ok';
       est.minhaPosEstado = 'ativa';
     }
-    if (r.ponto) {
-      est.filaMinha.push({ id: C.uuid(), lat: r.ponto.lat, lng: r.ponto.lng, prec: r.ponto.prec, t: r.ponto.t });
+    if (r.pontos.length) {
+      r.pontos.forEach(function (p) { est.filaMinha.push({ id: C.uuid(), lat: p.lat, lng: p.lng, prec: p.prec, t: p.t }); });
       if (est.filaMinha.length > 2000) est.filaMinha.splice(0, est.filaMinha.length - 2000);
-      // envio em lote: o primeiro ponto logo; depois a cada 10 s (sem adiar o que já está marcado)
+      // envio logo em seguida (o primeiro na hora; ~1 s em veículo; ~1,5 s a pé), sem adiar o que já está marcado
       if (!est.timerMinhaFila) {
         est.timerMinhaFila = setTimeout(function () { est.timerMinhaFila = null; enviarMinhaFila(); },
-          est.enviouMinhaAlguma ? CFG_GPS.intervaloEnvioMs : 300);
+          !est.enviouMinhaAlguma ? 300 : r.rapido ? CFG_GPS.envioRapidoMs : CFG_GPS.envioPeMs);
       }
     }
     atualizarBotaoMinhaPos();
@@ -4462,7 +4572,10 @@
     est.enviandoMinha = true;
     var lote = est.filaMinha.slice(0, 200);
     try {
-      await C.rpc('enviar_posicoes', { p_participante: est.meuPart, p_pontos: lote, p_gps: est.compartilhando ? est.gpsMeu : null }, 20000);
+      var desvio = C.agora() - Date.now();   // relógio do aparelho errado: converte para a hora do servidor
+      var envio = Math.abs(desvio) < 30000 ? lote : lote.map(function (x) { return Object.assign({}, x, { t: Math.round(x.t + desvio) }); });
+      var resp = await C.rpc('enviar_posicoes', { p_participante: est.meuPart, p_pontos: envio, p_gps: est.compartilhando ? est.gpsMeu : null }, 20000);
+      if (resp && resp.inseridos < lote.length) est.filtroMeu.registrar(null, false, 'servidor_recusou');
       est.enviouMinhaAlguma = true;
       C.local.gravar(chaveMinhaPosAqui(), Date.now());   // este aparelho é o que compartilha
       var enviados = new Set(lote.map(function (x) { return x.id; }));

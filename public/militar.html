@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06080a">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="gbs-versao" content="2026-10-12.1">
+  <meta name="gbs-versao" content="2026-10-12.2">
   <title>Rastreamento GBS — Painel do Responsável</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous">
@@ -371,7 +371,7 @@
             <h3>Histórico de posições (<span id="ficha-qtd-pontos">0</span> pontos)</h3>
             <div class="hist-rolagem">
               <table class="tabela-hist">
-                <thead><tr><th>Horário</th><th>Latitude</th><th>Longitude</th><th>Precisão</th></tr></thead>
+                <thead><tr><th>Horário</th><th>Latitude</th><th>Longitude</th><th>Precisão</th><th title="Tempo entre a captura pelo GPS e a chegada ao servidor">Chegou</th></tr></thead>
                 <tbody id="ficha-hist"></tbody>
               </table>
             </div>
@@ -418,6 +418,7 @@
   <script src="js/interface.js"></script>
   <script src="js/fotos.js"></script>
   <script src="js/gps.js"></script>
+  <script src="js/rotas.js"></script>
   <script src="js/militar.js"></script>
 </body>
 </html>
