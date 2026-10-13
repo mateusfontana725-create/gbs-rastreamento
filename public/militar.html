@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06080a">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="gbs-versao" content="2026-10-12.2">
+  <meta name="gbs-versao" content="2026-10-12.3">
   <title>Rastreamento GBS — Painel do Responsável</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" integrity="sha384-pmjIAcz2bAn0xukfxADbZIb3t8oRT9Sv0rvO+BR5Csr6Dhqq+nZs59P0pPKQJkEV" crossorigin="anonymous">
@@ -184,6 +184,7 @@
               <button class="menu-item" type="button" id="btn-convite"><span class="ico-item" aria-hidden="true">＋</span><span>Convidar participantes</span></button>
               <button class="menu-item" type="button" id="btn-equipe" title="Responsáveis desta operação"><span class="ico-item" aria-hidden="true">◆</span><span>Equipe de responsáveis</span></button>
               <button class="menu-item" type="button" id="menu-central"><span class="ico-msg" aria-hidden="true"></span><span>Mensagens, relatos e fotos</span></button>
+              <p class="menu-sol" id="menu-sol" hidden></p>
               <button class="menu-item" type="button" id="menu-diag-gps"><span class="ico-item" aria-hidden="true">⌖</span><span>Diagnóstico do GPS</span></button>
             </section>
             <section class="menu-grupo" aria-labelledby="mg-areas">
@@ -212,6 +213,19 @@
               <button class="menu-item" type="button" id="menu-3d"><span class="ico-item" aria-hidden="true">⛰</span><span>Relevo em 3D</span></button>
               <button class="menu-item" type="button" id="menu-enquadrar"><span class="ico-item" aria-hidden="true">⤢</span><span>Enquadrar todos no mapa</span></button>
               <button class="menu-item menu-check" type="button" id="opt-nomes" aria-pressed="true"><span class="marca-opcao" aria-hidden="true"></span><span>Nomes no mapa</span></button>
+            </section>
+            <section class="menu-grupo" aria-labelledby="mg-dados">
+              <h3 id="mg-dados">Ferramentas de mapa</h3>
+              <button class="menu-item" type="button" id="menu-ir-coord"><span class="ico-item" aria-hidden="true">⌖</span><span>Ir para coordenada</span></button>
+              <button class="menu-item" type="button" id="menu-medir"><span class="ico-item" aria-hidden="true">📏</span><span>Medir distância e área</span></button>
+              <button class="menu-item" type="button" id="menu-exportar"><span class="ico-item" aria-hidden="true">⤓</span><span>Exportar (GPX, KML, GeoJSON, CSV)</span></button>
+              <button class="menu-item" type="button" id="menu-importar"><span class="ico-item" aria-hidden="true">⤒</span><span>Importar arquivo (GPX, KML, KMZ…)</span><small class="menu-estado" id="menu-importados-qtd"></small></button>
+              <label class="menu-item menu-select" for="opt-coord"><span class="ico-item" aria-hidden="true">#</span><span>Coordenadas</span>
+                <select id="opt-coord" class="campo campo-pequeno" aria-label="Formato das coordenadas">
+                  <option value="dec">Graus decimais</option><option value="gms">Graus, min, seg</option><option value="gmd">Graus e min decimais</option>
+                  <option value="utm">UTM</option><option value="mgrs">MGRS</option>
+                </select></label>
+              <p class="menu-nota">Toque longo (ou clique com o botão direito) no mapa mostra as coordenadas e a altitude do ponto.</p>
             </section>
             <!-- Ações que não podem ser desfeitas: sempre no fim, separadas, com confirmação -->
             <section class="menu-grupo menu-zona-perigo" id="menu-zona-perigo" aria-labelledby="mg-perigo">
@@ -375,6 +389,8 @@
                 <tbody id="ficha-hist"></tbody>
               </table>
             </div>
+            <button class="btn btn-pequeno" type="button" id="ficha-estatisticas">📈 Estatísticas e perfil de altitude da trilha</button>
+            <button class="btn btn-pequeno" type="button" id="ficha-exportar">⤓ Exportar trilha (GPX/KML)</button>
             <button class="btn btn-perigo btn-pequeno" type="button" id="ficha-remover">Remover participante da operação</button>
           </details>
         </div>
@@ -419,6 +435,9 @@
   <script src="js/fotos.js"></script>
   <script src="js/gps.js"></script>
   <script src="js/rotas.js"></script>
+  <script src="js/coords.js"></script>
+  <script src="js/arquivos.js"></script>
   <script src="js/militar.js"></script>
+  <script src="js/ferramentas.js"></script>
 </body>
 </html>

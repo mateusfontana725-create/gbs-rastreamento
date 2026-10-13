@@ -356,6 +356,8 @@ zigue-zague com a pessoa parada. A versão atual junta as duas coisas:
   - **Camadas do mapa**: Mapa (OpenStreetMap), Topográfico (curvas de nível), Satélite, Setores de busca,
     Pontos de interesse, Fotos no mapa, Relatos no mapa, Trilhas de todos;
   - **Visualização**: Relevo em 3D, Enquadrar todos, Nomes no mapa;
+  - **Ferramentas de mapa**: Ir para coordenada, Medir distância e área, Exportar, Importar, Anéis de
+    distância e o **Formato das coordenadas** (ver "Ferramentas de mapa");
   - **Encerrar ou excluir** — sempre **no fim**, separado por uma linha tracejada vermelha:
     **Encerrar operação** (pede confirmação) e, com espaço entre os dois, **Excluir operação** (só para
     quem pode; confirmação reforçada: lista o que será apagado e exige **digitar o nome da operação**).
@@ -372,6 +374,56 @@ zigue-zague com a pessoa parada. A versão atual junta as duas coisas:
   (transição suave) e aparece o botão discreto **« Participantes N** para reabrir — com um ponto amarelo
   piscando se houver pedido de ajuda, pedido de saída ou mensagem nova. O rastreamento, o tempo real
   e as fichas continuam funcionando normalmente; a escolha fica lembrada no aparelho.
+
+### Ferramentas de mapa (inspiradas no AlpineQuest)
+
+Recursos de aplicativos de navegação em campo, adaptados à operação. Ficam no menu **Ferramentas →
+Ferramentas de mapa**, no **toque longo** (ou botão direito) sobre o mapa e na ficha do participante.
+
+- **Formato das coordenadas**: decimal, graus-minutos-segundos (GMS), graus e minutos decimais, **UTM**
+  (WGS 84) ou **MGRS**. A escolha vale para a ficha, os popups e o medidor e fica lembrada no aparelho.
+  Para passar por rádio, use UTM ou MGRS (mesmo sistema das cartas militares e da maioria dos GPS).
+- **Toque longo no mapa** (ou botão direito): coordenadas do ponto **em todos os formatos** (com botão
+  copiar), **altitude aproximada** (modelo de terreno), **distância e rumo** a partir da sua posição e
+  atalhos: **Marcar ponto aqui**, **Enviar como destino**, **Medir daqui** e **Anéis aqui**.
+- **Ir para coordenada**: digite em qualquer formato (ex.: `23K 708263 7515869`, `23K QR 08262 15869`,
+  `22°27'02,9"S 42°58'34,3"O`, `-22.4508, -42.9762` — o mesmo ponto). Mostra a prévia nos outros formatos antes de ir e marca o
+  alvo no mapa. Texto inválido não é aceito.
+- **Medir distância e área**: toque nos pontos; mostra cada trecho com **distância e rumo** (graus e
+  direção), o total, e — ao fechar o polígono — **área (ha / km²) e perímetro**. O polígono medido pode
+  virar **setor de busca** com um toque. Botões Desfazer e Sair.
+- **Exportar**: trilhas (de um participante ou de todos), pontos de interesse e setores em **GPX**
+  (Garmin, AlpineQuest, OsmAnd, Locus), **KML** (Google Earth), **GeoJSON** (QGIS/ArcGIS) ou **CSV**
+  (planilha, separador `;`). As trilhas saem com horário e precisão de cada ponto e as **lacunas** do sinal
+  ficam como segmentos separados. Bom para relatórios e para levar a busca para outro aplicativo.
+- **Importar**: **GPX, KML, KMZ, GeoJSON ou CSV** (até 8 MB) — por exemplo, trilhas conhecidas da região,
+  limites de parque ou pontos levantados por outra equipe. O conteúdo aparece como **camada de referência**
+  (verde-limão) apenas **neste aparelho** e fica lembrado nele. Cada item pode ser **transformado em ponto
+  de interesse** ou **setor de busca** da operação (aí sim, visível a todos); "Transformar pontos" converte
+  até 100 de uma vez. Nada é enviado ao servidor sem essa escolha.
+- **Estatísticas da trilha** (ficha → Estatísticas): distância, período, **tempo em movimento**, velocidade
+  média e máxima (sem contar picos isolados), **subida e descida acumuladas**, altitude mínima/máxima e o
+  **perfil de altitude** — passar o dedo/mouse no gráfico mostra a distância, a altitude e o ponto no mapa.
+  A altitude vem do GPS quando disponível; senão, do modelo de terreno (indicado na tela).
+- **Alarmes de proximidade**: o painel toca o alarme e mostra um aviso quando um participante **sai do
+  setor atribuído** a ele ou **entra numa área de risco** (ponto de interesse "Risco"). Cada área de risco
+  tem um **raio de alarme** (padrão 100 m; ajustável de 10 m a 5 km no formulário do ponto), desenhado como
+  círculo no painel e no celular. O **participante** também recebe o alerta no celular (vibração, som e
+  faixa vermelha "Você está numa ÁREA DE RISCO") ao entrar no raio. Só considera posições recentes e com precisão
+  de até 150 m, para não alarmar por erro de GPS.
+- **Anéis de distância**: círculos concêntricos (padrão 0,5 / 1 / 2 / 5 km, editável) a partir de um ponto
+  — útil para o **raio de busca a partir da última localização conhecida**. Ficam lembrados por operação.
+- **Sol**: o menu Operação mostra **nascer do sol, pôr do sol e quando escurece** (fim do crepúsculo civil)
+  para o local da operação; o painel avisa **60 e 30 minutos antes de escurecer**.
+- **Participante — "Onde estou"**: tocar no botão (ou no próprio marcador "Você") mostra suas coordenadas
+  em decimal e **UTM**, com precisão e botão copiar — para informar por telefone ou rádio se a internet cair.
+
+**Não incluído: mapas offline.** O AlpineQuest baixa mapas para uso sem internet, mas a política de uso dos
+servidores de ladrilhos do OpenStreetMap e do OpenTopoMap **proíbe o download em massa e o uso offline**.
+Implementar isso com esses servidores violaria os termos e poderia bloquear o acesso de todos. Alternativas,
+se for necessário: (1) gerar e hospedar os próprios ladrilhos/arquivo PMTiles da região (ex.: com dados do
+OSM e do IBGE) ou (2) contratar um provedor que permita cache offline (ex.: MapTiler, Thunderforest, com
+chave própria).
 
 ### Excluir uma operação
 
@@ -419,6 +471,9 @@ rastreamento-sar/
 │       ├── fotos.js            fotos: leitura de EXIF, redução, prévia, envio ao Storage privado
 │       ├── gps.js              filtro das leituras do GPS, montagem das trilhas, permissão e diagnóstico
 │       ├── rotas.js            rota por caminhos: pede a /api/rota, desenha e acompanha o progresso
+│       ├── coords.js           formatos de coordenadas (decimal, GMS, UTM, MGRS), rumo, nascer/pôr do sol
+│       ├── arquivos.js         exportar e importar GPX, KML/KMZ, GeoJSON e CSV
+│       ├── ferramentas.js      ferramentas de mapa do painel (medir, ir para coordenada, estatísticas…)
 │       ├── militar.js          lógica do painel
 │       └── civil.js            lógica do participante (GPS, fila offline, mensagens, relatos, fotos)
 ├── api/
@@ -431,8 +486,11 @@ rastreamento-sar/
 │   └── migracoes/
 │       ├── 003_setores_pontos_navegacao.sql   setores, pontos de interesse e destinos
 │       ├── 004_destinos_reinclusao.sql        destino recebido pelo participante e reinclusão
-│       └── 005_modo_destino.sql               modo do destino (a pé, trilha, carro)
-├── testes/filtro_gps.test.js   teste do filtro de GPS (node, sem dependências)
+│       ├── 005_modo_destino.sql               modo do destino (a pé, trilha, carro)
+│       └── 006_raio_alerta.sql                raio do alarme de proximidade nas áreas de risco
+├── testes/
+│   ├── filtro_gps.test.js      teste do filtro de GPS (node, sem dependências)
+│   └── coords.test.js          teste das conversões de coordenadas (UTM, MGRS, GMS, rumo, sol)
 ├── vercel.json                 diretório publicado, agendamento da limpeza e cabeçalhos de segurança
 ├── .env.example                nomes das variáveis de ambiente
 └── package.json
@@ -473,7 +531,11 @@ rastreamento-sar/
    `destinos.modo` ('a_pe', 'trilha', 'carro'; padrão 'a_pe'), o parâmetro opcional `p_modo` em
    `definir_destino` e o modo na resposta de `meu_destino` e `mapa_do_participante`. Sem ela, o destino
    continua funcionando (o painel envia sem o modo e o celular usa "a pé").
-   O `schema.sql` completo já inclui a 003, a 004 e a 005 (seções 10, 11 e 12).
+   **Migração 006** (`supabase/migracoes/006_raio_alerta.sql`, idempotente, exige a 003): acrescenta
+   `pontos_interesse.raio_m` (raio do alarme de proximidade, de 10 m a 5 km, opcional), aceita o raio em
+   `salvar_ponto` e o devolve em `mapa_do_participante`. Nenhuma política RLS é alterada. Sem ela, os
+   pontos continuam sendo salvos e o alarme usa o raio padrão de 100 m.
+   O `schema.sql` completo já inclui a 003, a 004, a 005 e a 006 (seções 10 a 13).
 3. Ative o ingresso dos participantes: **Authentication → Sign In / Providers** (ou **Providers**) →
    ligue **Allow anonymous sign-ins** → **Save**.
    *Cada celular recebe uma identidade anônima; ela só serve para ingressar com o token do link.*
@@ -747,13 +809,14 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
 
 ### Testes já realizados no desenvolvimento
 
-- **Backend (311 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
+- **Backend (318 verificações)**: o `schema.sql` foi executado num PostgreSQL 16 com PostgREST, usando o
   supabase-js real, inclusive por cima de um banco da versão anterior (sem perda); as migrações 004 e 005
   foram aplicadas duas vezes seguidas (idempotentes). Cobre RLS e permissões, posições, mensagens,
   responsáveis, retenção e limpeza, fotos, exclusão, setores/pontos/destinos, remover/reincluir, destino do
   participante e, agora, o **modo do destino** e a **função `/api/rota`** (quem pode pedir, participante só
   para si, coordenadas e distâncias inválidas, serviço fora do ar, sem chave configurada, perfis a pé/
-  trilha/carro, altitude, inclinação, instruções em português, chave nunca exposta).
+  trilha/carro, altitude, inclinação, instruções em português, chave nunca exposta) e o **raio do alarme**
+  das áreas de risco (limites, edição, entregue ao participante, civil não cria área de risco).
 - **Navegador (104 verificações)**, com **Realtime simulado que aplica o RLS**, simulador de GPS/permissão e
   **openrouteservice simulado** (mesmo formato de resposta da API real): localização do responsável,
   permissões, parado, **andando (~1 ponto a cada 3 s)**, **atraso medido: nova posição no painel em ~1,5 s
@@ -762,7 +825,13 @@ Use dois celulares Android com Chrome atualizado e dados móveis (de preferênci
   **rota a pé com tempo, subida, trechos íngremes e instruções**, **troca para carro/trilha com o perfil
   certo**, **recálculo ao sair da rota**, rota na ficha do painel, isolamento entre participantes,
   recarregar a página, remover/reincluir, menu e aviso de versão nova.
-- **Filtro de GPS (31 verificações)**: `npm test`.
+- **Filtro de GPS (31) e coordenadas (45 verificações)**: `npm test` — conversões UTM/MGRS/GMS conferidas
+  com valores de referência, ida e volta, zonas e hemisférios, rumo e horários do sol.
+- **Ferramentas de mapa (46 verificações)**: formatos de coordenada, toque longo (coordenadas, altitude,
+  distância/rumo), ir para coordenada (UTM, MGRS, GMS), medir distância/rumo/área e salvar como setor,
+  exportar GPX/KML/GeoJSON/CSV (e reimportar o GPX), importar GPX/KML/KMZ/GeoJSON/CSV, transformar em
+  pontos e setores, estatísticas e perfil de altitude, alarmes de proximidade (saída do setor, entrada em
+  área de risco, no painel e no celular), anéis de distância e "Onde estou" do participante.
 - **Setores, pontos, navegação, topográfico e 3D (42)**, **ponta a ponta (143)** — sem tempo real, com
   movimento realista e queda de internet — e **administração (20)**: todos passando.
 - **Não testado**: o **openrouteservice real** (não há chave neste ambiente e a rede de testes não chega

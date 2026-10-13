@@ -7,6 +7,6 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node testes/filtro_gps.test.js"
+    "test": "node testes/filtro_gps.test.js && node testes/coords.test.js"
   }
 }

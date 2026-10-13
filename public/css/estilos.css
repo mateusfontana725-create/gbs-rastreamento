@@ -1562,3 +1562,42 @@ body.conversa-aberta { overflow: hidden; }
 .opcao-modo:has(input:checked) { border-color: #93c5fd; background: rgba(37, 99, 235, .14); }
 .ficha-rota { display: block; margin-top: 4px; color: #bfdbfe; font-size: .88rem; }
 .lg-lacuna { display: inline-block; width: 18px; height: 0; border-top: 2px dotted #9ca3af; vertical-align: middle; }
+
+/* =====================================================================
+ * Ferramentas de mapa (coordenadas, medir, importar/exportar, perfil…)
+ * ===================================================================== */
+.menu-select { cursor: default; }
+.menu-select select { margin-left: auto; width: auto; min-height: 34px; padding: 4px 8px; font-size: .88rem; }
+.menu-sol { margin: 4px 14px 6px; padding: 6px 8px; border-radius: 6px; background: rgba(250, 204, 21, .1); color: #fde68a; font-size: .8rem; line-height: 1.35; }
+.bloco-coord .coord-principal { font-weight: 700; }
+.bloco-coord .coord-outro { font-size: .78rem; }
+.popup-info-ponto .leaflet-popup-content { margin: 10px 12px; color: #111; }
+.info-ponto { display: grid; gap: 6px; font-size: .88rem; }
+.info-ponto .muted, .info-ponto .coord-outro { color: #4b5563; }
+.info-ponto-acoes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.info-ponto .btn { color: #111; background: #f3f4f6; border-color: #d1d5db; }
+.rotulo-medida { transform: translate(-50%, -50%); white-space: nowrap; background: rgba(0, 0, 0, .78); color: #fde047; border: 1px solid #facc15;
+  border-radius: 4px; padding: 1px 5px; font: 700 .72rem/1.3 var(--mono); pointer-events: none; }
+.rotulo-anel { transform: translate(-50%, -50%); white-space: nowrap; background: rgba(0, 0, 0, .7); color: #f3f4f6; border-radius: 3px; padding: 0 4px; font: 600 .7rem/1.4 var(--fonte); }
+.mk-import { width: 12px; height: 12px; transform: translate(-50%, -50%) rotate(45deg); background: #84cc16; border: 2px solid #1a2e05; }
+.mk-import-rotulo { position: absolute; left: 10px; top: -8px; white-space: nowrap; font: 600 .72rem/1.2 var(--fonte); color: #ecfccb; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.esconder-rotulos .mk-import-rotulo { display: none; }
+.mk-alvo { transform: translate(-50%, -50%); font-size: 30px; color: #facc15; text-shadow: 0 0 4px #000; line-height: 1; }
+.lista-importados { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item-importado { border: 1px solid var(--borda); border-radius: 8px; padding: 8px; display: grid; gap: 4px; }
+.modal-estatisticas { max-width: 700px; }
+.perfil-altitude { position: relative; }
+.perfil-svg { width: 100%; height: auto; display: block; touch-action: none; }
+.perfil-grade { stroke: var(--borda); stroke-width: 1; }
+.perfil-eixo { fill: var(--texto-3); font: 11px var(--fonte); }
+.perfil-linha { fill: none; stroke: #facc15; stroke-width: 2; stroke-linejoin: round; }
+.perfil-cursor { stroke: var(--texto-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.perfil-ponto { fill: #facc15; stroke: #000; stroke-width: 1.5; }
+.perfil-dica { position: absolute; top: 0; background: var(--superficie-3); border: 1px solid var(--borda-forte); color: var(--texto); border-radius: 4px; padding: 2px 6px; font-size: .78rem; pointer-events: none; white-space: nowrap; }
+.perfil-tabela { margin-top: 6px; }
+.perfil-tabela .tabela-hist { max-height: 220px; display: block; overflow: auto; }
+/* participante: minhas coordenadas e alerta de área de risco */
+.minhas-coord { display: grid; gap: 4px; color: #111; }
+.minhas-coord strong { font-size: 1.05rem; }
+.minhas-coord .mono { font-size: 1.15rem; font-weight: 700; }
+.alerta-risco { margin: 0 0 10px; padding: 12px 14px; border-radius: 10px; background: #450a0a; border: 2px solid #ef4444; color: #fee2e2; font-weight: 700; font-size: 1.05rem; }

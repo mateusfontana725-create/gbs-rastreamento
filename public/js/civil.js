@@ -200,7 +200,7 @@
     $('btn-encontrei').addEventListener('click', abrirEncontrei);
     $('btn-falar').addEventListener('click', abrirConversa);
     $('conversa-fechar').addEventListener('click', fecharConversa);
-    $('btn-onde-estou').addEventListener('click', function () { estado.seguindo = true; centralizarEmMim(true); });
+    $('btn-onde-estou').addEventListener('click', function () { estado.seguindo = true; centralizarEmMim(true); mostrarMinhasCoordenadas(); });
     $('nav-encerrar').addEventListener('click', encerrarNavegacao);
     $('nav-bussola-ativar').addEventListener('click', pedirBussola);
     document.querySelectorAll('.nav-modos [data-modo]').forEach(function (b) {
@@ -614,6 +614,7 @@
       estado.gps = a.prec != null && a.prec > 50 ? 'fraco' : 'ok';
       atualizarMeuMarcador();
       agendarNavegacao();
+      if (a.prec == null || a.prec <= 150) verificarRisco(a);
     }
     if (r.pontos.length) {
       estado.ultimoAceito = r.ponto;
@@ -1026,6 +1027,7 @@
         icon: L.divIcon({ className: 'mk-eu-wrap', html: '<div class="mk-eu"></div><div class="mk-eu-rotulo">Você</div>', iconSize: [0, 0] }),
         keyboard: false, zIndexOffset: 1000, title: 'Você está aqui',
       }).addTo(estado.mapa);
+      estado.meuMarcador.on('click', mostrarMinhasCoordenadas);
       estado.mapa.setView(ll, 16);
     } else {
       estado.meuMarcador.setLatLng(ll);
@@ -1033,6 +1035,26 @@
       estado.meuCirculo.setRadius(l.prec || 0);
       if (estado.seguindo && !estado.mapa.getBounds().pad(-0.2).contains(ll)) estado.mapa.panTo(ll);
     }
+  }
+
+  // Minhas coordenadas (para passar por telefone ou rádio aos bombeiros).
+  function mostrarMinhasCoordenadas() {
+    var l = estado.ultimaLeitura;
+    if (!estado.mapa || !l || !window.Coords) return;
+    var utm = window.Coords.formatar(l.lat, l.lng, 'utm');
+    var dec = window.Coords.formatar(l.lat, l.lng, 'dec');
+    var caixa = UI.el('div', { classe: 'minhas-coord' }, [
+      UI.el('strong', { texto: 'Suas coordenadas' }),
+      UI.el('span', { classe: 'mono', texto: dec }),
+      UI.el('span', { classe: 'mono muted', texto: 'UTM ' + utm }),
+      UI.el('span', { classe: 'muted', texto: 'Precisão: ' + C.precisao(l.prec) }),
+      UI.el('button', { classe: 'btn btn-pequeno', type: 'button', id: 'copiar-coord', texto: 'Copiar', onclick: function () {
+        var t = dec + ' (UTM ' + utm + ')';
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { UI.aviso('Coordenadas copiadas.', 'ok'); }, function () { UI.aviso(t, 'ok', 9000); });
+        else UI.aviso(t, 'ok', 9000);
+      } }),
+    ]);
+    L.popup({ className: 'popup-info-ponto', maxWidth: 280, offset: [0, -8] }).setLatLng([l.lat, l.lng]).setContent(caixa).openOn(estado.mapa);
   }
 
   function centralizarEmMim(aviso) {
@@ -1157,6 +1179,30 @@
   }
 
   var LETRA_PONTO = { ENCONTRO: 'E', RISCO: '!' };
+  var RAIO_ALERTA_PADRAO = 100;   // m — área de risco sem raio definido pelos bombeiros
+
+  // Alarme de proximidade: entrou numa área de risco marcada pelos bombeiros.
+  function verificarRisco(l) {
+    var caixa = $('alerta-risco');
+    var dentro = null;
+    (estado.pontosRisco || []).forEach(function (pt) {
+      if (!dentro && C.distancia(l.lat, l.lng, pt.lat, pt.lng) <= (pt.raio_m || RAIO_ALERTA_PADRAO)) dentro = pt;
+    });
+    if (dentro) {
+      caixa.textContent = '⚠ Você está numa ÁREA DE RISCO: ' + dentro.titulo + '. Tenha muito cuidado e siga as orientações dos bombeiros.';
+      caixa.hidden = false;
+      if (estado.riscoAtual !== dentro.id) {
+        estado.riscoAtual = dentro.id;
+        try { if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]); } catch (e) { /* ignora */ }
+        bipe();
+        try { caixa.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) { /* ignora */ }
+      }
+    } else if (estado.riscoAtual) {
+      estado.riscoAtual = null;
+      caixa.hidden = true;
+      UI.aviso('Você saiu da área de risco.', 'ok');
+    }
+  }
   var NOME_PONTO = { ENCONTRO: 'Ponto de encontro', RISCO: 'Área de risco — cuidado' };
 
   // Setores atribuídos a mim (contorno) e pontos de encontro / risco.
@@ -1171,6 +1217,10 @@
       var camada = st.forma === 'circulo' ? L.circle([st.centro_lat, st.centro_lng], Object.assign({ radius: st.raio_m }, estilo)) : L.polygon(st.pontos || [], estilo);
       camada.bindTooltip('Seu setor: ' + C.esc(st.nome), { permanent: true, direction: 'center', className: 'rotulo-setor' });
       camada.addTo(estado.camadaExtras);
+    });
+    estado.pontosRisco = pontos.filter(function (pt) { return pt.categoria === 'RISCO'; });
+    estado.pontosRisco.forEach(function (pt) {
+      L.circle([pt.lat, pt.lng], { radius: pt.raio_m || RAIO_ALERTA_PADRAO, color: '#ef4444', weight: 2, dashArray: '6 6', fillColor: '#ef4444', fillOpacity: 0.1, interactive: false, className: 'circulo-risco' }).addTo(estado.camadaExtras);
     });
     pontos.forEach(function (pt) {
       L.marker([pt.lat, pt.lng], {

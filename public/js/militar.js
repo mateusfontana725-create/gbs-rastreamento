@@ -214,7 +214,7 @@
     $('menu-ferramentas').addEventListener('click', function (ev) {
       // fecha ao escolher uma opção (na captura: antes de a ação desabilitar o botão)
       var item = ev.target.closest('.menu-item');
-      if (item && !item.disabled) fecharMenu(false);
+      if (item && !item.disabled && !item.classList.contains('menu-select')) fecharMenu(false);
     }, true);
     document.addEventListener('pointerdown', function (ev) {
       if (!$('menu-ferramentas').hidden && !$('ferramentas').contains(ev.target)) fecharMenu(false);
@@ -244,6 +244,9 @@
     $('opt-fotos').addEventListener('click', function () { definirPrefMapa('fotos', !est.prefsMapa.fotos); });
     $('opt-relatos').addEventListener('click', function () { definirPrefMapa('relatos', !est.prefsMapa.relatos); });
     $('opt-nomes').addEventListener('click', function () { definirPrefMapa('nomes', !est.prefsMapa.nomes); });
+    $('opt-coord').addEventListener('change', function () { definirPrefMapa('coord', this.value); if (est.selecionado) atualizarFicha(); });
+    $('ficha-estatisticas').addEventListener('click', function () { if (window.Ferramentas && est.selecionado) window.Ferramentas.abrirEstatisticas(est.selecionado); });
+    $('ficha-exportar').addEventListener('click', function () { if (window.Ferramentas && est.selecionado) window.Ferramentas.abrirExportar(est.selecionado); });
     $('opt-trilhas').addEventListener('click', function () { definirTodasTrilhas(!todasTrilhasVisiveis()); });
     $('menu-enquadrar').addEventListener('click', enquadrarTodos);
     $('menu-diag-gps').addEventListener('click', function () { fecharMenu(false); abrirDiagnosticoGps(); });
@@ -854,6 +857,8 @@
     if (est.prefsMapa.setores) est.camadaSetores.addTo(mapa);
     if (est.prefsMapa.pontos) est.camadaPontosInt.addTo(mapa);
     mapa.on('click', aoClicarNoMapa);
+    // toque longo / botão direito: coordenadas e altitude do ponto (como no AlpineQuest)
+    mapa.on('contextmenu', function (e) { if (!est.desenho && window.Ferramentas) window.Ferramentas.infoPonto(e.latlng); });
 
     est.mapa = mapa;
     $('mapa').classList.toggle('esconder-rotulos', !est.prefsMapa.nomes);
@@ -957,6 +962,7 @@
     $('opt-setores').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.setores)));
     $('opt-pontos').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.pontos)));
     $('opt-nomes').setAttribute('aria-pressed', String(Boolean(est.prefsMapa.nomes)));
+    $('opt-coord').value = est.prefsMapa.coord || 'dec';
     $('opt-trilhas').setAttribute('aria-pressed', String(todasTrilhasVisiveis()));
   }
 
@@ -1497,6 +1503,8 @@
     }
     sujarTrilha(p);
     if (est.selecionado === p.id) atualizarFicha();
+    // alarmes de proximidade (saiu do setor / entrou em área de risco)
+    if (window.Ferramentas && pt.t > C.agora() - 180000 && (pt.prec == null || pt.prec <= LIM.precisaoTrilhaM)) window.Ferramentas.aoNovoPonto(p, pt);
   }
 
   function sujarTrilha(p) {
@@ -1876,6 +1884,7 @@
       ['Celular', d.telefone ? '<a class="tel" href="tel:+55' + C.esc(d.telefone) + '">' + formatarTelefone(d.telefone) + '</a>' : '—'],
       ['Rastreamento', ehResp ? (d.rastreando ? 'Compartilhando posição' : 'Posição não compartilhada') : (d.rastreando ? 'Ativo' : 'Interrompido')],
       ['GPS', C.esc(textoGps(d.gps_estado))],
+      ['Coordenadas', pos ? '<span class="mono">' + C.esc(window.Coords.formatar(pos.lat, pos.lng, est.prefsMapa.coord || 'dec')) + '</span>' : '—'],
       ['Latitude', '<span class="mono">' + C.coord(pos && pos.lat) + '</span>'],
       ['Longitude', '<span class="mono">' + C.coord(pos && pos.lng) + '</span>'],
       ['Precisão', C.esc(C.precisao(pos && pos.prec))],
@@ -3089,6 +3098,7 @@
     andamento: { rotulo: 'Em andamento', selo: 'selo-alerta' },
     concluido: { rotulo: 'Concluído', selo: 'selo-ok' },
   };
+  var RAIO_ALERTA_PADRAO = 100;   // m — área de risco sem raio definido
   var CAT_PONTO = {
     ULTIMA_LOCALIZACAO: { rotulo: 'Última localização conhecida', letra: 'U' },
     POSSIVEL_LOCALIZACAO: { rotulo: 'Possível localização da vítima', letra: '?' },
@@ -3156,7 +3166,7 @@
     });
     if (completa) {
       est.pontosInt.forEach(function (p, id) {
-        if (!vistos.has(id)) { if (p.marcador) p.marcador.remove(); est.pontosInt.delete(id); }
+        if (!vistos.has(id)) { if (p.marcador) p.marcador.remove(); if (p.circulo) p.circulo.remove(); est.pontosInt.delete(id); }
       });
     }
     renderizarAreas();
@@ -3322,7 +3332,13 @@
     if (!est.mapa || !est.camadaPontosInt) return;
     var d = p.d;
     if (p.marcador) { p.marcador.remove(); p.marcador = null; }
+    if (p.circulo) { p.circulo.remove(); p.circulo = null; }
     var cat = CAT_PONTO[d.categoria] || CAT_PONTO.OUTRO;
+    // Área de risco: círculo do alarme de proximidade (quem entra é avisado).
+    if (d.categoria === 'RISCO') {
+      p.circulo = L.circle([d.lat, d.lng], { radius: d.raio_m || RAIO_ALERTA_PADRAO, color: '#ef4444', weight: 2, dashArray: '6 6',
+        fillColor: '#ef4444', fillOpacity: 0.08, interactive: false, className: 'circulo-risco' }).addTo(est.camadaPontosInt);
+    }
     var mk = L.marker([d.lat, d.lng], { icon: iconePontoInt(d), keyboard: true, title: cat.rotulo + ': ' + d.titulo, alt: d.titulo, zIndexOffset: -50 });
     mk.on('click', function () {
       if (est.desenho) { aoClicarNoMapa({ latlng: mk.getLatLng() }); return; }
@@ -3403,7 +3419,27 @@
       var pre = dz.participantes;
       cancelarDesenho();
       abrirEnviarDestino({ nome: 'Ponto marcado no mapa', lat: ll[0], lng: ll[1], participantes: pre });
+    } else if (dz.tipo === 'externo' && dz.aoClicar) {
+      dz.aoClicar(ll);
     }
+  }
+
+  // Modo de desenho usado pelas ferramentas (medir etc.): mesma barra e mesma
+  // regra de toques no mapa (inclusive sobre marcadores).
+  function iniciarDesenhoExterno(o) {
+    if (!est.mapa) return null;
+    cancelarDesenho();
+    fecharMenu(false);
+    if (telaPequena()) { fecharAreas(); fecharCentral(); if (!$('ficha').hidden) fecharFicha(); }
+    est.desenho = { tipo: 'externo', camadaTemp: L.layerGroup().addTo(est.mapa), aoClicar: o.aoClicar, aoCancelar: o.aoCancelar };
+    $('mapa').classList.add('modo-desenho');
+    var dz = est.desenho;
+    return {
+      camada: dz.camadaTemp,
+      barra: function (texto, extra, botoes) { if (est.desenho === dz) mostrarBarraDesenho(texto, extra, botoes); },
+      encerrar: function () { if (est.desenho === dz) cancelarDesenho(); },
+      ativo: function () { return est.desenho === dz; },
+    };
   }
 
   async function usarMinhaPosicaoNoDesenho() {
@@ -3720,6 +3756,22 @@
     var lng = UI.el('input', { classe: 'campo mono', id: 'ponto-lng', type: 'number', step: 'any', inputmode: 'decimal', value: String(d.lng) });
     var erro = UI.el('p', { classe: 'erro-form', role: 'alert', hidden: true });
     var btn = UI.el('button', { classe: 'btn btn-escuro', type: 'submit', id: 'ponto-salvar', texto: novo ? 'Marcar ponto' : 'Salvar' });
+    // coordenada digitada em qualquer formato (UTM, MGRS, GMS, decimal) preenche latitude/longitude
+    var coordTxt = UI.el('input', { classe: 'campo mono', id: 'ponto-coord', placeholder: 'Ex.: 23K 707870 7515797 ou 22°27\'05"S 42°58\'48"O' });
+    var coordInfo = UI.el('small', { classe: 'muted', id: 'ponto-coord-info' });
+    coordTxt.addEventListener('input', function () {
+      var c = window.Coords.interpretar(coordTxt.value);
+      if (c) { lat.value = String(Math.round(c.lat * 1e7) / 1e7); lng.value = String(Math.round(c.lng * 1e7) / 1e7); coordInfo.textContent = '✓ ' + window.Coords.formatar(c.lat, c.lng, 'dec'); }
+      else coordInfo.textContent = coordTxt.value.trim() ? 'Formato não reconhecido' : '';
+    });
+    var raio = UI.el('input', { classe: 'campo', id: 'ponto-raio', type: 'number', min: '10', max: '5000', step: '10', inputmode: 'numeric',
+      value: d.raio_m ? String(Math.round(d.raio_m)) : String(RAIO_ALERTA_PADRAO) });
+    var grupoRaio = UI.el('div', { classe: 'grupo', hidden: d.categoria !== 'RISCO' }, [
+      UI.el('label', { classe: 'rotulo', for: 'ponto-raio', texto: 'Raio do alarme de proximidade (m)' }), raio,
+      UI.el('small', { classe: 'muted', texto: 'Quem entrar neste círculo recebe um alerta no celular e o painel é avisado.' })]);
+    grade.addEventListener('change', function () {
+      grupoRaio.hidden = (grade.querySelector('input:checked') || {}).value !== 'RISCO';
+    });
     grade.addEventListener('change', function () {
       var k = (grade.querySelector('input:checked') || {}).value;
       if (k && (!titulo.value.trim() || Object.keys(CAT_PONTO).some(function (c) { return CAT_PONTO[c].rotulo === titulo.value.trim(); }))) titulo.value = CAT_PONTO[k].rotulo;
@@ -3732,6 +3784,8 @@
       UI.el('div', { classe: 'grupo' }, [UI.el('span', { classe: 'rotulo', texto: 'Categoria' }), grade]),
       UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'ponto-titulo', texto: 'Nome ou título' }), titulo]),
       UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'ponto-desc', texto: 'Descrição ou observações (opcional)' }), desc]),
+      grupoRaio,
+      UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'ponto-coord', texto: 'Coordenada em qualquer formato (opcional)' }), coordTxt, coordInfo]),
       UI.el('div', { classe: 'grupo-duplo' }, [
         UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'ponto-lat', texto: 'Latitude' }), lat]),
         UI.el('div', { classe: 'grupo' }, [UI.el('label', { classe: 'rotulo', for: 'ponto-lng', texto: 'Longitude' }), lng]),
@@ -3755,6 +3809,11 @@
         erro.textContent = 'Coordenadas inválidas.'; erro.hidden = false; return;
       }
       if (novo && d.mensagem_id) dados.mensagem_id = d.mensagem_id;
+      if (dados.categoria === 'RISCO') {
+        var r = Number(raio.value);
+        if (!isFinite(r) || r < 10 || r > 5000) { erro.textContent = 'Raio do alarme: de 10 m a 5.000 m.'; erro.hidden = false; return; }
+        dados.raio_m = Math.round(r);
+      }
       btn.disabled = true;
       try {
         var res = await C.rpc('salvar_ponto', { p_operacao: est.op.id, p_id: d.id || null, p_dados: dados });
@@ -3771,6 +3830,25 @@
       }
     });
     var fechar = UI.abrirModal(form, { fecharNoFundo: false, aoFechar: function () { if (!salvo) cancelarDesenho(); } });
+  }
+
+  // Coordenadas no formato escolhido (Ferramentas › Formato das coordenadas), com os
+  // outros formatos logo abaixo e botão de copiar — para passar por rádio ou telefone.
+  function blocoCoordenadas(lat, lng) {
+    var fmt = est.prefsMapa.coord || 'dec';
+    var principal = window.Coords.formatar(lat, lng, fmt);
+    var outros = Object.keys(window.Coords.FORMATOS).filter(function (f) { return f !== fmt; })
+      .map(function (f) { return UI.el('div', { classe: 'mono muted coord-outro', texto: window.Coords.formatar(lat, lng, f) }); });
+    return UI.el('div', { classe: 'bloco-coord' }, [
+      UI.el('span', { classe: 'mono coord-principal', texto: principal }), ' ',
+      UI.el('button', { classe: 'btn btn-pequeno btn-link', type: 'button', texto: 'Copiar', onclick: function () { copiarTexto(principal); } }),
+    ].concat(outros));
+  }
+
+  function copiarTexto(t) {
+    var ok = function () { UI.aviso('Copiado: ' + t, 'ok'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, function () { UI.aviso(t, 'ok', 9000); });
+    else UI.aviso(t, 'ok', 9000);
   }
 
   function verPontoNoMapa(d) {
@@ -3793,7 +3871,8 @@
     function linha(rot, valor) { dl.appendChild(UI.el('dt', { texto: rot })); var dd = UI.el('dd', null, [valor]); dl.appendChild(dd); return dd; }
     linha('Categoria', cat.rotulo);
     if (d.descricao) linha('Descrição', d.descricao);
-    linha('Coordenadas', UI.el('span', { classe: 'mono', texto: C.coord(d.lat) + ', ' + C.coord(d.lng) }));
+    linha('Coordenadas', blocoCoordenadas(d.lat, d.lng));
+    if (d.categoria === 'RISCO') linha('Alarme de proximidade', 'raio de ' + Math.round(d.raio_m || RAIO_ALERTA_PADRAO) + ' m');
     var alt = linha('Altitude', UI.el('span', { classe: 'muted', texto: 'consultando o modelo de terreno…' }));
     linha('Registrado', C.hora(d.criado_em) + ' por ' + d.criado_por_nome);
     if (d.relatado_por_nome) linha('Relatado por', d.relatado_por_nome + ' (participante)');
@@ -3811,6 +3890,8 @@
         ativa ? UI.el('button', { classe: 'btn', type: 'button', id: 'ponto-destino', texto: '🧭 Enviar como destino', onclick: function () { fechar(); abrirEnviarDestino({ nome: d.titulo, lat: d.lat, lng: d.lng, ponto_id: d.id }); } }) : null,
         editavel ? UI.el('button', { classe: 'btn', type: 'button', texto: 'Editar', onclick: function () { fechar(); abrirFormPontoInt(d); } }) : null,
         ativa ? UI.el('button', { classe: 'btn', type: 'button', texto: foto ? 'Trocar foto' : 'Anexar foto', onclick: function () { fechar(); anexarFotoPonto(d); } }) : null,
+        window.Ferramentas ? UI.el('button', { classe: 'btn', type: 'button', id: 'ponto-aneis', texto: window.Ferramentas.temAneis(d.id) ? '◎ Tirar anéis de distância' : '◎ Anéis de distância',
+          onclick: function () { fechar(); window.Ferramentas.alternarAneis({ id: d.id, lat: d.lat, lng: d.lng, nome: d.titulo }); } }) : null,
         UI.el('button', { classe: 'btn btn-perigo', type: 'button', id: 'ponto-excluir', texto: 'Excluir', onclick: function () { fechar(); excluirPontoInt(d); } }),
         UI.el('button', { classe: 'btn btn-escuro', type: 'button', texto: 'Fechar', onclick: function () { fechar(); } }),
       ]),
@@ -3844,6 +3925,7 @@
       await C.rpc('excluir_ponto', { p_id: d.id });
       var p = est.pontosInt.get(d.id);
       if (p && p.marcador) p.marcador.remove();
+      if (p && p.circulo) p.circulo.remove();
       est.pontosInt.delete(d.id);
       renderizarAreas();
       UI.aviso('Ponto excluído.', 'ok');
@@ -5053,6 +5135,38 @@
       UI.aviso(e.message, 'erro', 7000);
     }
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Interface para as ferramentas de mapa (ferramentas.js)               */
+  /* ------------------------------------------------------------------ */
+  window.Painel = {
+    mapa: function () { return est.mapa; },
+    op: function () { return est.op; },
+    usuario: function () { return est.usuario; },
+    selecionado: function () { return est.selecionado; },
+    participantes: function () { return Array.from(est.participantes.values()); },
+    participante: function (id) { return est.participantes.get(id) || null; },
+    nome: function (p) { return nomeExibido(p); },
+    tipo: function (p) { return tipoDe(p.dados); },
+    trilha: function (p) { return window.GPS.trilha(p.pontos, { precisaoTrilhaM: LIM.precisaoTrilhaM, objetos: true }); },
+    posicao: function (p) { return posicaoAtual(p); },
+    pontosInteresse: function () { return Array.from(est.pontosInt.values()).map(function (x) { return x.d; }); },
+    setores: function () { return Array.from(est.setores.values()).map(function (x) { return x.d; }); },
+    categorias: CAT_PONTO,
+    raioAlertaPadrao: RAIO_ALERTA_PADRAO,
+    formatoCoord: function () { return est.prefsMapa.coord || 'dec'; },
+    minhaPosicao: function () { return obterMinhaPosicao(); },
+    altitudeEm: altitudeEm,
+    alarme: function () { alarme(); },
+    iniciarDesenho: iniciarDesenhoExterno,
+    marcarPonto: function (lat, lng, extra) { abrirFormPontoInt(Object.assign({ lat: lat, lng: lng }, extra || {})); },
+    enviarDestino: function (lat, lng, nome) { abrirEnviarDestino({ nome: nome || 'Ponto marcado no mapa', lat: lat, lng: lng }); },
+    criarSetor: function (pontos, nome) { abrirFormSetor(Object.assign({ forma: 'poligono', pontos: pontos }, nome ? { nome: nome.slice(0, 60) } : {})); },
+    salvarPonto: function (dados) { return C.rpc('salvar_ponto', { p_operacao: est.op.id, p_id: null, p_dados: dados }).then(function (r) { aplicarPontos([r]); return r; }); },
+    blocoCoordenadas: blocoCoordenadas,
+    copiar: copiarTexto,
+    fecharMenu: function () { fecharMenu(false); },
+  };
 
   iniciar();
 })();

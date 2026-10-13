@@ -50,6 +50,7 @@
   function mesclar(cfg) {
     var r = {};
     Object.keys(PADRAO).forEach(function (k) { r[k] = cfg && cfg[k] != null ? cfg[k] : PADRAO[k]; });
+    r.objetos = Boolean(cfg && cfg.objetos);   // trilha(): segmentos com os pontos originais (para exportar)
     return r;
   }
 
@@ -370,7 +371,7 @@
           lacunas.push({ de: [ant.lat, ant.lng], ate: [pt.lat, pt.lng], t0: ant.t, t1: pt.t, impossivel: impossivel });
         }
       }
-      seg.push([pt.lat, pt.lng]);
+      seg.push(cfg.objetos ? pt : [pt.lat, pt.lng]);
       ant = pt;
     }
     if (seg.length) segs.push(seg);
